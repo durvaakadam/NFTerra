@@ -6,6 +6,8 @@ import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 contract DynamicNFT is ERC721URIStorage {
 
     uint256 public tokenCounter;
+    uint256 public mintPrice = 0.05 ether;
+    uint256 public levelUpPrice = 0.02 ether;
 
     mapping(uint256 => uint256) public levels;
 
@@ -13,8 +15,7 @@ contract DynamicNFT is ERC721URIStorage {
         tokenCounter = 0;
     }
 
-    function mintNFT(string memory tokenURI) public {
-
+    function mintNFT(string memory tokenURI) public payable {        require(msg.value >= mintPrice, "Insufficient payment for minting");
         uint256 tokenId = tokenCounter;
 
         _safeMint(msg.sender, tokenId);
@@ -25,9 +26,9 @@ contract DynamicNFT is ERC721URIStorage {
         tokenCounter++;
     }
 
-    function levelUp(uint256 tokenId) public {
-
-        require(ownerOf(tokenId) == msg.sender);
+    function levelUp(uint256 tokenId) public payable {
+        require(ownerOf(tokenId) == msg.sender, "Not the owner");
+        require(msg.value >= levelUpPrice, "Insufficient payment for leveling up");
 
         levels[tokenId] += 1;
     }
