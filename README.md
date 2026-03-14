@@ -131,6 +131,9 @@ lib/
 4. **Connect Wallet**
    Click "Connect Wallet" and approve MetaMask connection
 
+5. **Local Chain (Ganache)**
+   Use Ganache at `http://127.0.0.1:7545` with Chain ID `5777` for local testing.
+
 ## Customization
 
 ### Update Contract Address
