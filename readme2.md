@@ -2,7 +2,7 @@
 
 Dynamic ERC-721 NFT where each token has an on-chain **level** that can be minted and upgraded.
 
-**Stack:** Solidity · Hardhat · OpenZeppelin · Node.js
+**Stack:** Solidity · Ganache · OpenZeppelin · Node.js · ethers.js
 
 ---
 
@@ -33,24 +33,24 @@ assets/images, metadata/   – NFT assets
 # Install dependencies
 npm install
 
-# Compile contracts
-npx hardhat compile
+# Start local blockchain (Ganache app or CLI)
+# RPC: http://127.0.0.1:7545
+# Chain ID: 5777
 
-# Start local blockchain (keep this running)
-npx hardhat node
-
-# Deploy contract
-npx hardhat run scripts/deploy.js --network localhost
-
-# Open interactive console
-npx hardhat console --network localhost
+# Deploy contract to Ganache
+node deploy-simple.mjs
+npx hardhat run scripts/deploy.js --network ganache
 ```
 
 ### Console interactions
 
 ```js
-const NFT = await ethers.getContractFactory("DynamicNFT")
-const nft = await NFT.attach("<DEPLOYED_ADDRESS>")
+import { ethers } from "ethers"
+import artifact from "./artifacts/contracts/DynamicNFT.sol/DynamicNFT.json" assert { type: "json" }
+
+const provider = new ethers.JsonRpcProvider("http://127.0.0.1:7545")
+const signer = await provider.getSigner(0)
+const nft = new ethers.Contract("<DEPLOYED_ADDRESS>", artifact.abi, signer)
 
 await nft.mintNFT("ipfs://example-metadata")   // Mint
 await nft.levels(0)                             // Check level → 1
