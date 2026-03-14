@@ -60,8 +60,6 @@ await nft.levels(0)                             // Check level → 2
 
 ---
 
-## Future Improvements
-
-* Dynamic metadata / images per level (egg → creature → dragon)
-* React frontend with MetaMask wallet connection
-* IPFS storage for metadata
+npx hardhat run scripts/deploy.js --network localhost
+node deploy-simple.mjs
+Stop-Process -Id 4452 -Force

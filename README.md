@@ -182,3 +182,8 @@ The app includes comprehensive mock data generators:
 ## License
 
 MIT License - Feel free to use this template for your Web3 projects!
+
+
+npx hardhat run scripts/deploy.js --network localhost
+node deploy-simple.mjs
+Stop-Process -Id 4452 -Force
