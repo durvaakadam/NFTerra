@@ -10,7 +10,7 @@ declare global {
 // Contract address - configurable via environment variable
 export const CONTRACT_ADDRESS = 
   process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || 
-  "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512";
+  "0xdf422bcC7C112bc1bf3aC8fC8346D0bC0a70fbc9";
 
 // Full ABI for DynamicNFT contract
 export const CONTRACT_ABI = [

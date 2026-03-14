@@ -1,31 +1,37 @@
-const { ethers } = require("hardhat");
+import { ethers } from "ethers";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 async function main() {
-  console.log("🚀 Deploying DynamicNFT contract...");
+  // Load artifact
+  const artifactPath = path.join(__dirname, "../artifacts/contracts/DynamicNFT.sol/DynamicNFT.json");
+  const artifact = JSON.parse(fs.readFileSync(artifactPath, "utf8"));
+
+  // Ganache RPC
+  const provider = new ethers.JsonRpcProvider("http://127.0.0.1:7545");
+  const accounts = await provider.listAccounts();
+  const signer = accounts[0];
+
+  console.log("Deploying with account:", signer.address);
+
+  // Create contract factory
+  const factory = new ethers.ContractFactory(artifact.abi, artifact.bytecode, signer);
+
+  // Deploy
+  const nft = await factory.deploy();
+  await nft.waitForDeployment();
+
+  const address = await nft.getAddress();
+  console.log("DynamicNFT deployed to:", address);
   
-  // Get the contract factory
-  const DynamicNFT = await ethers.getContractFactory("DynamicNFT");
-  
-  // Deploy the contract
-  const dynamicNFT = await DynamicNFT.deploy();
-  await dynamicNFT.waitForDeployment();
-  
-  const deployedAddress = await dynamicNFT.getAddress();
-  
-  console.log("✅ DynamicNFT deployed to:", deployedAddress);
-  console.log("\n📋 Next steps:");
-  console.log("1. Update frontend/.env.local:");
-  console.log(`   NEXT_PUBLIC_CONTRACT_ADDRESS=${deployedAddress}`);
-  console.log("2. Make sure Hardhat node is running: npx hardhat node");
-  console.log("3. Configure MetaMask to use Hardhat Local network (Chain ID: 31337)");
-  console.log("4. Import account with private key: 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80");
-  
-  return deployedAddress;
+  return address;
 }
 
-main()
-  .then(() => process.exit(0))
-  .catch((error) => {
-    console.error(error);
-    process.exit(1);
-  });
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
