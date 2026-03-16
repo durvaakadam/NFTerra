@@ -18,7 +18,7 @@ async function main() {
   console.log(`   NEXT_PUBLIC_CONTRACT_ADDRESS=${deployedAddress}`);
   console.log("2. Make sure Hardhat node is running: npx hardhat node");
   console.log("3. Configure MetaMask to use Hardhat Local network (Chain ID: 31337)");
-  console.log("4. Import account with private key: 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80");
+  console.log("4. Import account with private key: 0x18340aff51237b447025ec9cb2906ef7c502791e7bb74387d3f682d405c31d88");
   
   return deployedAddress;
 }
