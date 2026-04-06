@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import {
@@ -11,9 +11,10 @@ import { Navbar } from '@/components/shared/Navbar';
 import { Footer } from '@/components/shared/Footer';
 import { useWallet } from '@/lib/context/WalletContext';
 import { useTxToast } from '@/lib/context/TxToastContext';
-import { generateMockCollection } from '@/lib/mock-data';
+import { useNFTStore } from '@/lib/context/NFTStoreContext';
+import { EVOLUTION_STAGES, NFT } from '@/lib/mock-data';
 import { COLLECTIONS } from '@/lib/marketplace-data';
-import { sendMarketplaceTransaction } from '@/lib/contract';
+import { sendMarketplaceTransaction, getNFTsByOwner } from '@/lib/contract';
 import {
   Tag, Shield, Wallet, CheckCircle2, ChevronRight, BarChart2,
   AlertTriangle, Clock, Percent, ArrowRight, Info, Loader2,
@@ -44,9 +45,53 @@ const DURATIONS = [
 export default function ListNFTPage() {
   const { connected, connectWallet, address } = useWallet();
   const { runTx } = useTxToast();
+  const { newNFTs } = useNFTStore();
 
   const [step, setStep] = useState(1);
   const [txStatus, setTxStatus] = useState<'idle' | 'approving' | 'signing' | 'success' | 'error'>('idle');
+  const [blockchainNFTs, setBlockchainNFTs] = useState<NFT[]>([]);
+
+  // Fetch user's actual blockchain NFTs
+  useEffect(() => {
+    if (!connected || !address) {
+      setBlockchainNFTs([]);
+      return;
+    }
+
+    const fetchNFTs = async () => {
+      try {
+        const nftDataList = await getNFTsByOwner(address);
+        const convertedNFTs: NFT[] = nftDataList.map(nftData => ({
+          tokenId: nftData.tokenId,
+          name: nftData.name,
+          level: nftData.level,
+          image: EVOLUTION_STAGES[Math.max(0, Math.min(nftData.level - 1, EVOLUTION_STAGES.length - 1))]?.image || '/nft-1.jpg',
+          rarity: (nftData.level === 1 ? 'common' : nftData.level === 2 ? 'rare' : 'legendary') as 'common' | 'rare' | 'legendary',
+          owner: nftData.owner,
+          lastLevelUp: new Date().toISOString(),
+          attributes: [],
+        }));
+        setBlockchainNFTs(convertedNFTs);
+      } catch (err) {
+        console.error('Error fetching NFTs:', err);
+      }
+    };
+
+    fetchNFTs();
+  }, [connected, address]);
+
+  // Combine blockchain NFTs with newly minted ones from context
+  const myNFTs = useMemo(() => {
+    const nftsMap = new Map<number, NFT>();
+    blockchainNFTs.forEach((nft) => {
+      nftsMap.set(nft.tokenId, nft);
+    });
+    newNFTs.forEach((nft) => {
+      const existing = nftsMap.get(nft.tokenId);
+      nftsMap.set(nft.tokenId, existing ? { ...existing, ...nft } : nft);
+    });
+    return Array.from(nftsMap.values());
+  }, [blockchainNFTs, newNFTs]);
 
   // Step 1 — Select NFT
   const [selectedNftId, setSelectedNftId] = useState<number | null>(null);
@@ -60,18 +105,6 @@ export default function ListNFTPage() {
   // Step 3 — Duration
   const [duration, setDuration] = useState(7);
   const [startTime, setStartTime] = useState<'now' | 'scheduled'>('now');
-
-  // Mock collection
-  const myNFTs = useMemo(() => {
-    const owner = address ?? '0xMockOwner';
-    return generateMockCollection(owner, 8).map((nft, i) => ({
-      ...nft,
-      image: [
-        '/nft-anime-1.jpg', '/nft-cyber-1.jpg', '/nft-fantasy-1.jpg', '/nft-pixel-1.jpg',
-        '/nft-abstract-1.jpg', '/nft-anime-2.jpg', '/nft-cyber-2.jpg', '/nft-fantasy-2.jpg',
-      ][i],
-    }));
-  }, [address]);
 
   const selectedNft = myNFTs.find(n => n.tokenId === selectedNftId) ?? null;
 
