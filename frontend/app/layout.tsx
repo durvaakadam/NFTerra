@@ -12,7 +12,7 @@ const _jakarta = Plus_Jakarta_Sans({ subsets: ["latin"], variable: "--font-sans"
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: 'NFTerra – Dynamic NFT Evolution Platform',
+  title: 'NFTerra',
   description: 'Evolve your digital assets with NFTerra. Dynamic NFTs that level up and transform on the blockchain.',
   generator: 'v0.app',
   icons: {

@@ -11,7 +11,7 @@ import { useContract } from '@/hooks/use-contract';
 import { Navbar } from '@/components/shared/Navbar';
 import { Footer } from '@/components/shared/Footer';
 import { NFTGrid } from '@/components/nft/NFTGrid';
-import { generateMockNFT, NFT } from '@/lib/mock-data';
+import { generateMockNFT, NFT, EVOLUTION_STAGES } from '@/lib/mock-data';
 import { formatTimeAgo } from '@/lib/marketplace-data';
 import { formatAddress } from '@/lib/web3-utils';
 import { sendMarketplaceTransaction, getNFTsByOwner } from '@/lib/contract';
@@ -44,7 +44,7 @@ const STATUS_CONF: Record<string, { icon: React.ReactNode; label: string; color:
 export default function DashboardPage() {
   const router = useRouter();
   const { address, connected } = useWallet();
-  const { newNFTs } = useNFTStore();
+  const { newNFTs, removeNewNFT } = useNFTStore();
   const { listings, addListing } = useMyListings();
   const { runTx } = useTxToast();
   const { addTransaction, updateTransaction, transactions } = useTxHistory();
@@ -65,17 +65,20 @@ export default function DashboardPage() {
       setLoadingNFTs(true);
       try {
         const nftDataList = await getNFTsByOwner(address);
-        // Convert NFTData to NFT format
-        const convertedNFTs: NFT[] = nftDataList.map(nftData => ({
-          tokenId: nftData.tokenId,
-          name: nftData.name,
-          level: nftData.level,
-          image: '/nft-1.jpg', // Default image, can be customized
-          rarity: (nftData.level === 1 ? 'common' : nftData.level === 2 ? 'rare' : 'legendary') as 'common' | 'rare' | 'legendary',
-          owner: nftData.owner,
-          lastLevelUp: new Date().toISOString(),
-          attributes: [],
-        }));
+        // Convert NFTData to NFT format and derive image from evolution stage
+        const convertedNFTs: NFT[] = nftDataList.map(nftData => {
+          const stageIndex = Math.max(0, Math.min(nftData.level - 1, EVOLUTION_STAGES.length - 1));
+          return {
+            tokenId: nftData.tokenId,
+            name: nftData.name,
+            level: nftData.level,
+            image: EVOLUTION_STAGES[stageIndex]?.image || '/nft-1.jpg',
+            rarity: (nftData.level === 1 ? 'common' : nftData.level === 2 ? 'rare' : 'legendary') as 'common' | 'rare' | 'legendary',
+            owner: nftData.owner,
+            lastLevelUp: new Date().toISOString(),
+            attributes: [],
+          };
+        });
         setBlockchainNFTs(convertedNFTs);
       } catch (err) {
         console.error('Error fetching NFTs:', err);
@@ -94,9 +97,17 @@ export default function DashboardPage() {
     nftsMap.set(nft.tokenId, nft);
   });
   newNFTs.forEach((nft) => {
-    // Prefer richer local metadata (image/name) when available
     const existing = nftsMap.get(nft.tokenId);
-    nftsMap.set(nft.tokenId, existing ? { ...existing, ...nft } : nft);
+    // If on-chain data exists, prefer its level/image/owner and only let
+    // the local store override softer metadata like name.
+    if (existing) {
+      nftsMap.set(nft.tokenId, {
+        ...existing,
+        name: nft.name || existing.name,
+      });
+    } else {
+      nftsMap.set(nft.tokenId, nft);
+    }
   });
   
   // Filter out listed NFTs
@@ -124,17 +135,20 @@ export default function DashboardPage() {
     setRefreshing(true);
     try {
       const nftDataList = await getNFTsByOwner(address);
-      // Convert NFTData to NFT format
-      const convertedNFTs: NFT[] = nftDataList.map(nftData => ({
-        tokenId: nftData.tokenId,
-        name: nftData.name,
-        level: nftData.level,
-        image: '/nft-1.jpg', // Default image
-        rarity: (nftData.level === 1 ? 'common' : nftData.level === 2 ? 'rare' : 'legendary') as 'common' | 'rare' | 'legendary',
-        owner: nftData.owner,
-        lastLevelUp: new Date().toISOString(),
-        attributes: [],
-      }));
+      // Convert NFTData to NFT format and derive image from evolution stage
+      const convertedNFTs: NFT[] = nftDataList.map(nftData => {
+        const stageIndex = Math.max(0, Math.min(nftData.level - 1, EVOLUTION_STAGES.length - 1));
+        return {
+          tokenId: nftData.tokenId,
+          name: nftData.name,
+          level: nftData.level,
+          image: EVOLUTION_STAGES[stageIndex]?.image || '/nft-1.jpg',
+          rarity: (nftData.level === 1 ? 'common' : nftData.level === 2 ? 'rare' : 'legendary') as 'common' | 'rare' | 'legendary',
+          owner: nftData.owner,
+          lastLevelUp: new Date().toISOString(),
+          attributes: [],
+        };
+      });
       setBlockchainNFTs(convertedNFTs);
     } catch (err) {
       console.error('Error refreshing NFTs:', err);
@@ -176,13 +190,59 @@ export default function DashboardPage() {
               status: 'success',
               hash: result.txHash,
             });
-            // Refresh NFTs to get updated level
-            await handleRefresh();
+            // Only update this specific NFT in blockchain data
+            const newLevel = result.newLevel;
+            const stageIndex = Math.max(0, Math.min(newLevel - 1, EVOLUTION_STAGES.length - 1));
+            setBlockchainNFTs(prev =>
+              prev.map(n =>
+                n.tokenId === tokenId
+                  ? {
+                      ...n,
+                      level: newLevel,
+                      image: EVOLUTION_STAGES[stageIndex]?.image || '/nft-1.jpg',
+                      rarity: (newLevel === 1 ? 'common' : newLevel === 2 ? 'rare' : 'legendary') as 'common' | 'rare' | 'legendary',
+                    }
+                  : n,
+              ),
+            );
           } else {
             throw new Error('Level up failed');
           }
         } catch (err: any) {
           updateTransaction(txId, { status: 'failed' });
+          
+          // If NFT doesn't exist on contract, remove it from display (contract was redeployed/reset)
+          if (err?.message?.includes('not found on contract')) {
+            console.warn(`Removing stale NFT #${tokenId} - contract was reset or redeployed`);
+            // Remove from both blockchain state and context store
+            setBlockchainNFTs(prev => prev.filter(n => n.tokenId !== tokenId));
+            removeNewNFT(tokenId);
+            
+            // Refresh NFT list to get actual on-chain inventory
+            if (address) {
+              try {
+                const nftDataList = await getNFTsByOwner(address);
+                const convertedNFTs: NFT[] = nftDataList.map(nftData => {
+                  const stageIndex = Math.max(0, Math.min(nftData.level - 1, EVOLUTION_STAGES.length - 1));
+                  return {
+                    tokenId: nftData.tokenId,
+                    name: nftData.name,
+                    level: nftData.level,
+                    image: EVOLUTION_STAGES[stageIndex]?.image || '/nft-1.jpg',
+                    rarity: (nftData.level === 1 ? 'common' : nftData.level === 2 ? 'rare' : 'legendary') as 'common' | 'rare' | 'legendary',
+                    owner: nftData.owner,
+                    lastLevelUp: new Date().toISOString(),
+                    attributes: [],
+                  };
+                });
+                setBlockchainNFTs(convertedNFTs);
+              } catch (refreshErr) {
+                console.error('Failed to refresh NFT list:', refreshErr);
+              }
+            }
+            throw new Error(`NFT #${tokenId} no longer exists on-chain. This usually means the blockchain was reset. Your remaining NFTs have been reloaded.`);
+          }
+          
           // Re-throw with detailed error message for runTx to display
           throw new Error(err?.message || 'Level up failed');
         }

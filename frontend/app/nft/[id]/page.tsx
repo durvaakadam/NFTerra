@@ -45,6 +45,9 @@ export default function NFTDetailPage({ params }: { params: Promise<{ id: string
   const [leveled, setLeveled] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [evolving, setEvolving] = useState<'idle' | 'animating' | 'complete'>('idle');
+  const [evolutionFromLevel, setEvolutionFromLevel] = useState<number | null>(null);
+  const [evolutionToLevel, setEvolutionToLevel] = useState<number | null>(null);
 
   React.useEffect(() => { params.then(setParamsValue); }, [params]);
 
@@ -98,14 +101,29 @@ export default function NFTDetailPage({ params }: { params: Promise<{ id: string
   }, [paramsValue, loadNFT]);
 
   const handleLevelUp = async () => {
-    if (!nft) return;
-    
-    const result = await levelUp(nft.tokenId);
-    
-    if (result) {
-      setLeveled(true);
-      setNft(prev => prev ? { ...prev, level: result.newLevel } : null);
-      setTimeout(() => setLeveled(false), 4000);
+    if (!nft || nft.level >= 5) return;
+
+    const fromLevel = nft.level;
+    const toLevel = Math.min(5, nft.level + 1);
+
+    setEvolutionFromLevel(fromLevel);
+    setEvolutionToLevel(toLevel);
+    setEvolving('animating');
+
+    try {
+      const result = await levelUp(nft.tokenId);
+
+      if (result) {
+        setLeveled(true);
+        setNft(prev => (prev ? { ...prev, level: result.newLevel } : null));
+        setTimeout(() => setLeveled(false), 4000);
+        setEvolving('complete');
+      } else {
+        setEvolving('idle');
+      }
+    } catch (err) {
+      console.error('Level up failed:', err);
+      setEvolving('idle');
     }
   };
 
@@ -187,13 +205,20 @@ export default function NFTDetailPage({ params }: { params: Promise<{ id: string
   const displayName = storeNFT?.name || displayNFT.name;
   const displayRarity = (storeNFT?.rarity || displayNFT.rarity) as 'common' | 'rare' | 'legendary';
   const stageIndex = Math.max(0, Math.min(displayNFT.level - 1, EVOLUTION_STAGES.length - 1));
-  const fallbackImage = EVOLUTION_STAGES[stageIndex]?.image || '/nft-1.jpg';
-  const displayImage = storeNFT?.image || fallbackImage;
+  // Always drive the main artwork from evolution stages so image updates with level
+  const displayImage = EVOLUTION_STAGES[stageIndex]?.image || '/nft-1.jpg';
   
   // Get listing info if available
   const listing = listings.find(l => l.tokenId === displayNFT.tokenId && l.status === 'active');
 
   const isOwner = connected && address && displayNFT?.owner?.toLowerCase() === address.toLowerCase();
+
+  const fromStage = evolutionFromLevel
+    ? EVOLUTION_STAGES[Math.max(0, Math.min(evolutionFromLevel - 1, EVOLUTION_STAGES.length - 1))]
+    : null;
+  const toStage = evolutionToLevel
+    ? EVOLUTION_STAGES[Math.max(0, Math.min(evolutionToLevel - 1, EVOLUTION_STAGES.length - 1))]
+    : null;
 
   const ATTRS = [
     { k: 'Token ID',      v: `#${displayNFT.tokenId}` },
@@ -364,6 +389,47 @@ export default function NFTDetailPage({ params }: { params: Promise<{ id: string
               </div>
             </div>
 
+            {/* Next Evolution Preview */}
+            {displayNFT.level < 5 && (
+              <div className="panel space-y-3">
+                <h3 className="font-black text-lg">Next Evolution</h3>
+                <p className="text-sm text-[oklch(0.6_0.03_270)]">
+                  Preview how this NFT will look and feel after the next level up.
+                </p>
+                {EVOLUTION_STAGES[displayNFT.level] && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-[oklch(0.6_0.03_270)] uppercase">Current Stage</p>
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl bg-[oklch(0.94_0.05_270)]">
+                          {EVOLUTION_STAGES[displayNFT.level - 1]?.emoji}
+                        </div>
+                        <div>
+                          <p className="font-black text-sm">{EVOLUTION_STAGES[displayNFT.level - 1]?.name}</p>
+                          <p className="text-xs text-[oklch(0.6_0.03_270)]">Lv {displayNFT.level} / 5</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-[oklch(0.6_0.03_270)] uppercase">Next Stage</p>
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl bg-[oklch(0.96_0.05_75)] animate-pulse">
+                          {EVOLUTION_STAGES[displayNFT.level]?.emoji}
+                        </div>
+                        <div>
+                          <p className="font-black text-sm">{EVOLUTION_STAGES[displayNFT.level]?.name}</p>
+                          <p className="text-xs text-[oklch(0.6_0.03_270)]">Lv {displayNFT.level + 1} / 5</p>
+                          <p className="text-[11px] text-[oklch(0.55_0.03_270)] mt-1">
+                            {EVOLUTION_STAGES[displayNFT.level]?.description}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* All Attributes */}
             <div className="panel space-y-3">
               <h3 className="font-black text-lg">All Details</h3>
@@ -484,6 +550,89 @@ export default function NFTDetailPage({ params }: { params: Promise<{ id: string
           </div>
         </div>
       </main>
+
+      {/* Evolution overlay */}
+      {evolving !== 'idle' && fromStage && toStage && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center px-4">
+          <div className="relative max-w-xl w-full panel overflow-hidden" style={{ boxShadow: '8px 8px 0 var(--indigo)' }}>
+            <button
+              onClick={() => {
+                setEvolving('idle');
+                setEvolutionFromLevel(null);
+                setEvolutionToLevel(null);
+              }}
+              className="absolute top-3 right-3 text-[oklch(0.6_0.03_270)] hover:text-[oklch(0.3_0.03_270)] text-sm font-bold"
+            >
+              ✕
+            </button>
+
+            <div className="flex flex-col gap-4 items-center text-center pt-6 pb-4 px-4">
+              <div className="flex items-center gap-2 mb-1">
+                <Zap className="w-5 h-5 text-[var(--indigo)] animate-pulse" />
+                <h2 className="font-black text-2xl">
+                  {evolving === 'animating' ? 'Evolving NFT...' : 'Evolution Complete!'}
+                </h2>
+              </div>
+              <p className="text-xs uppercase tracking-[0.2em] font-black text-[oklch(0.55_0.03_270)] mb-1">
+                Token #{displayNFT.tokenId}
+              </p>
+
+              <div className="grid grid-cols-[1fr_auto_1fr] gap-4 items-center w-full mt-2">
+                {/* From stage */}
+                <div className="space-y-2">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-[oklch(0.6_0.03_270)]">From</p>
+                  <div className="inset-panel flex flex-col items-center gap-2">
+                    <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-3xl bg-[oklch(0.94_0.05_270)]">
+                      {fromStage.emoji}
+                    </div>
+                    <p className="font-black text-sm">{fromStage.name}</p>
+                    <p className="text-[11px] text-[oklch(0.6_0.03_270)]">Lv {fromStage.level} / 5</p>
+                  </div>
+                </div>
+
+                {/* Arrow / energy column */}
+                <div className="flex flex-col items-center justify-center gap-2">
+                  <div className="w-1 h-12 rounded-full bg-gradient-to-b from-[var(--indigo)] via-[var(--teal)] to-[var(--amber)] animate-pulse" />
+                  <span className="text-xs font-black text-[oklch(0.55_0.03_270)]">Lv +1</span>
+                </div>
+
+                {/* To stage */}
+                <div className="space-y-2">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-[oklch(0.6_0.03_270)]">To</p>
+                  <div className="inset-panel flex flex-col items-center gap-2">
+                    <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-3xl bg-[oklch(0.96_0.06_75)] ${
+                      evolving === 'animating' ? 'animate-bounce' : 'animate-none'
+                    }`}>
+                      {toStage.emoji}
+                    </div>
+                    <p className="font-black text-sm">{toStage.name}</p>
+                    <p className="text-[11px] text-[oklch(0.6_0.03_270)]">Lv {toStage.level} / 5</p>
+                  </div>
+                </div>
+              </div>
+
+              <p className="text-xs text-[oklch(0.6_0.03_270)] mt-2 max-w-sm">
+                {evolving === 'animating'
+                  ? 'Confirm the transaction in your wallet to complete this evolution.'
+                  : 'Your NFT has evolved! Stats and artwork across the app have been updated.'}
+              </p>
+
+              {evolving === 'complete' && (
+                <button
+                  onClick={() => {
+                    setEvolving('idle');
+                    setEvolutionFromLevel(null);
+                    setEvolutionToLevel(null);
+                  }}
+                  className="btn-primary mt-2"
+                >
+                  Continue Exploring
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <Footer />
     </div>

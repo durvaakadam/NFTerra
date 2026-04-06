@@ -180,8 +180,19 @@ export async function levelUpNFT(tokenId: number): Promise<{ newLevel: number; t
     const signer = await getSigner();
     const userAddress = await signer.getAddress();
     
-    // Pre-flight check: Verify user owns the NFT
-    const owner = await contract.ownerOf(tokenId);
+    // Pre-flight check: Verify NFT exists on the contract
+    let owner: string;
+    try {
+      owner = await contract.ownerOf(tokenId);
+    } catch (err: any) {
+      // Token doesn't exist - likely contract was redeployed or state was reset
+      throw new Error(
+        `not found on contract: NFT #${tokenId} doesn't exist on blockchain. ` +
+        `This happens when the contract is redeployed or the chain is reset.`
+      );
+    }
+    
+    // Verify user owns the NFT
     if (owner.toLowerCase() !== userAddress.toLowerCase()) {
       throw new Error(`You do not own NFT #${tokenId}. Current owner: ${owner}`);
     }
@@ -293,6 +304,7 @@ export async function getNFTsByOwner(ownerAddress: string): Promise<NFTData[]> {
   
   const totalMinted = await getTotalMinted();
   const ownedNFTs: NFTData[] = [];
+  let skippedCount = 0;
   
   for (let tokenId = 0; tokenId < totalMinted; tokenId++) {
     try {
@@ -324,10 +336,21 @@ export async function getNFTsByOwner(ownerAddress: string): Promise<NFTData[]> {
           tokenURI,
         });
       }
-    } catch {
-      // Token doesn't exist or error reading
+    } catch (err: any) {
+      // Token doesn't exist or error reading - skip it
+      // This can happen if: contract was redeployed, token burned, or counter is stale
+      skippedCount++;
       continue;
     }
+  }
+  
+  // If we skipped a lot of tokens, log a warning
+  if (skippedCount > totalMinted * 0.5) {
+    console.warn(
+      `⚠️  Warning: ${skippedCount}/${totalMinted} tokens are invalid. ` +
+      `This usually means the contract was redeployed or the blockchain was reset. ` +
+      `Found ${ownedNFTs.length} valid NFTs.`
+    );
   }
   
   return ownedNFTs;
