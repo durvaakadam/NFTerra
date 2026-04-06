@@ -15,21 +15,9 @@ export const metadata: Metadata = {
   description: 'Evolve your digital assets with NFTerra. Dynamic NFTs that level up and transform on the blockchain.',
   generator: 'v0.app',
   icons: {
-    icon: [
-      {
-        url: '/icon-light-32x32.png',
-        media: '(prefers-color-scheme: light)',
-      },
-      {
-        url: '/icon-dark-32x32.png',
-        media: '(prefers-color-scheme: dark)',
-      },
-      {
-        url: '/icon.svg',
-        type: 'image/svg+xml',
-      },
-    ],
-    apple: '/apple-icon.png',
+    // Use custom icon from public/111.jpg for all platforms
+    icon: '/111.jpg',
+    apple: '/111.jpg',
   },
 }
 
