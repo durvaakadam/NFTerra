@@ -1,8 +1,10 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useWallet } from '@/lib/context/WalletContext';
 import { useNFTStore } from '@/lib/context/NFTStoreContext';
+import { useMyListings } from '@/lib/context/MyListingsContext';
 import { useTxToast } from '@/lib/context/TxToastContext';
 import { useTxHistory, TxRecord } from '@/lib/context/TxHistoryContext';
 import { useContract } from '@/hooks/use-contract';
@@ -40,17 +42,16 @@ const STATUS_CONF: Record<string, { icon: React.ReactNode; label: string; color:
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
+  const router = useRouter();
   const { address, connected } = useWallet();
   const { newNFTs } = useNFTStore();
+  const { listings, addListing } = useMyListings();
   const { runTx } = useTxToast();
   const { addTransaction, updateTransaction, transactions } = useTxHistory();
   const { levelUp, levelingUp } = useContract();
   const [blockchainNFTs, setBlockchainNFTs] = useState<NFT[]>([]);
   const [loadingNFTs, setLoadingNFTs] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [listingNFT, setListingNFT] = useState<NFT | null>(null);
-  const [listingPrice, setListingPrice] = useState('');
-  const [isListing, setIsListing] = useState(false);
   const [levelingNFTId, setLevelingNFTId] = useState<number | null>(null);
 
   // Fetch NFTs from blockchain
@@ -97,8 +98,16 @@ export default function DashboardPage() {
     const existing = nftsMap.get(nft.tokenId);
     nftsMap.set(nft.tokenId, existing ? { ...existing, ...nft } : nft);
   });
-  const nfts = Array.from(nftsMap.values());
+  
+  // Filter out listed NFTs
+  const activeListed = listings.filter(l => l.status === 'active');
+  let nfts = Array.from(nftsMap.values()).filter(nft => 
+    !activeListed.some(listing => listing.tokenId === nft.tokenId && listing.seller.toLowerCase() === (address?.toLowerCase() || ''))
+  );
   const txHistory = transactions;
+  const myListings = connected && address
+    ? listings.filter((listing) => listing.seller.toLowerCase() === address.toLowerCase() && listing.status === 'active')
+    : [];
 
   // ── Stats ───────────────────────────────────────────────────────────────────
   const totalValue  = nfts.reduce((s, n) => {
@@ -187,45 +196,8 @@ export default function DashboardPage() {
 
   // ── List NFT ──────────────────────────────────────────────────────────────────
   const handleList = (nft: NFT) => {
-    setListingNFT(nft);
-    setListingPrice('');
-  };
-
-  const handleConfirmListing = async () => {
-    if (!listingNFT || !listingPrice || !address) return;
-    setIsListing(true);
-
-    const txId = addTransaction({
-      action: 'Listed',
-      tokenId: listingNFT.tokenId,
-      tokenName: listingNFT.name,
-      amount: `${listingPrice} ETH`,
-      timestamp: new Date().toISOString(),
-      status: 'pending',
-    });
-
-    await runTx(
-      `Listing ${listingNFT.name} for ${listingPrice} ETH`,
-      async () => {
-        try {
-          // Real MetaMask transaction
-          const result = await sendMarketplaceTransaction(listingPrice);
-          updateTransaction(txId, {
-            status: 'success',
-            hash: result.txHash,
-          });
-        } catch (err: any) {
-          updateTransaction(txId, { status: 'failed' });
-          throw err;
-        }
-      },
-      `Listed successfully!`,
-      'Listing failed',
-    );
-
-    setListingNFT(null);
-    setListingPrice('');
-    setIsListing(false);
+    // Navigate to list page with the NFT pre-selected
+    router.push(`/list?nftId=${nft.tokenId}`);
   };
 
   return (
@@ -338,6 +310,41 @@ export default function DashboardPage() {
           </>
         )}
 
+        {/* ── My Listings ── */}
+        {connected && myListings.length > 0 && (
+          <div className="mt-14">
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="font-black text-xl">My Listings</h2>
+              <span className="tag tag-rose">{myListings.length} active</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {myListings.map((listing) => (
+                <article key={listing.id} className="nft-grid-card overflow-hidden">
+                  <div className="relative aspect-video border-b border-[oklch(0.88_0.01_270)]">
+                    <img src={listing.image} alt={listing.tokenName} className="w-full h-full object-cover" />
+                    <div className="absolute top-2 left-2">
+                      <span className="tag tag-rose">Active</span>
+                    </div>
+                    <div className="absolute bottom-2 right-2">
+                      <span className="tag tag-indigo">{listing.price} {listing.currency}</span>
+                    </div>
+                  </div>
+
+                  <div className="p-3">
+                    <p className="font-black text-sm truncate">{listing.tokenName}</p>
+                    <p className="text-[11px] font-mono text-[oklch(0.6_0.03_270)]">Token #{listing.tokenId} · Level {listing.level}</p>
+                    <div className="flex items-center justify-between mt-3 text-xs">
+                      <span className="text-[oklch(0.6_0.03_270)]">Listed {formatTimeAgo(listing.listedAt)}</span>
+                      <Link href={`/nft/${listing.tokenId}`} className="font-black text-[var(--indigo)] hover:underline">View NFT</Link>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* ── Transaction History ── */}
         {connected && txHistory.length > 0 && (
           <div className="mt-14">
@@ -406,71 +413,7 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* ── List NFT Modal ── */}
-        {listingNFT && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="panel max-w-sm w-full">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="font-black text-lg">List NFT for Sale</h2>
-                <button
-                  onClick={() => setListingNFT(null)}
-                  className="text-[oklch(0.6_0.03_270)] hover:text-[oklch(0.3_0.03_270)]"
-                >
-                  ✕
-                </button>
-              </div>
 
-              {/* NFT Info */}
-              <div className="bg-[oklch(0.97_0.01_270)] rounded-lg p-4 mb-6 border border-[oklch(0.88_0.01_270)]">
-                <p className="text-xs font-black uppercase text-[oklch(0.5_0.03_270)] tracking-widest mb-2">NFT Details</p>
-                <p className="font-black text-sm mb-1">{listingNFT.name}</p>
-                <p className="font-mono text-xs text-[oklch(0.6_0.03_270)] mb-3">Token ID: #{listingNFT.tokenId}</p>
-                <div className="flex items-center gap-3">
-                  <div className="relative w-12 h-12 rounded overflow-hidden border border-[oklch(0.88_0.01_270)]">
-                    <img src={listingNFT.image} alt={listingNFT.name} className="w-full h-full object-cover" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-[10px] font-bold text-[oklch(0.5_0.03_270)] uppercase tracking-wider">Level</p>
-                    <p className="font-black text-sm">Lv {listingNFT.level}/5 · {listingNFT.rarity}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Price Input */}
-              <div className="mb-6">
-                <label className="text-xs font-black uppercase text-[oklch(0.5_0.03_270)] tracking-widest block mb-2">
-                  Listing Price (ETH)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={listingPrice}
-                  onChange={(e) => setListingPrice(e.target.value)}
-                  placeholder="0.50"
-                  className="w-full px-4 py-2 border-2 border-[oklch(0.88_0.01_270)] rounded-lg focus:outline-none focus:border-[var(--indigo)] font-mono text-sm transition-colors"
-                />
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setListingNFT(null)}
-                  className="btn-outline flex-1"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleConfirmListing}
-                  disabled={!listingPrice || isListing}
-                  className="btn-primary flex-1 disabled:opacity-50"
-                >
-                  {isListing ? 'Listing...' : 'List Now'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
       </main>
 
       <Footer />

@@ -16,6 +16,7 @@ import { useWallet } from '@/lib/context/WalletContext';
 import { useTxToast } from '@/lib/context/TxToastContext';
 import { useTxHistory } from '@/lib/context/TxHistoryContext';
 import { useNFTStore } from '@/lib/context/NFTStoreContext';
+import { useMyListings } from '@/lib/context/MyListingsContext';
 import { sendMarketplaceTransaction } from '@/lib/contract';
 import { formatAddress } from '@/lib/web3-utils';
 import {
@@ -52,14 +53,24 @@ export default function MarketplacePage() {
   const { runTx } = useTxToast();
   const { addTransaction, updateTransaction } = useTxHistory();
   const { addNewNFT, newNFTs } = useNFTStore();
+  const { listings } = useMyListings();
 
   const [category, setCategory]       = useState<CategoryId>('all');
   const [activeCol, setActiveCol]     = useState<Collection>(COLLECTIONS[0]);
-  const [viewMode, setViewMode]       = useState<'collections' | 'listings'>('collections');
+  const [viewMode, setViewMode]       = useState<'collections' | 'listings' | 'my-listings'>('collections');
   const [search, setSearch]           = useState('');
   const [buying, setBuying]           = useState<string | null>(null);
   const [showListModal, setShowListModal] = useState(false);
   const [sortBy, setSortBy]           = useState<'volume' | 'floor' | 'change'>('volume');
+
+  const myActiveListings = useMemo(() => {
+    if (!address) return [];
+    return listings.filter(
+      (listing) =>
+        listing.status === 'active' &&
+        listing.seller.toLowerCase() === address.toLowerCase(),
+    );
+  }, [listings, address]);
 
   const filteredCollections = useMemo(() => {
     let cols = category === 'all' ? COLLECTIONS : COLLECTIONS.filter(c => c.category === category);
@@ -148,14 +159,23 @@ export default function MarketplacePage() {
             <button
               onClick={() => setViewMode('collections')}
               className={`p-1.5 rounded transition-colors ${viewMode === 'collections' ? 'bg-[var(--indigo)] text-white' : 'text-[oklch(0.5_0.03_270)] hover:bg-[oklch(0.94_0.02_270)]'}`}
+              title="Collections view"
             >
               <BarChart2 className="w-4 h-4" />
             </button>
             <button
               onClick={() => setViewMode('listings')}
               className={`p-1.5 rounded transition-colors ${viewMode === 'listings' ? 'bg-[var(--indigo)] text-white' : 'text-[oklch(0.5_0.03_270)] hover:bg-[oklch(0.94_0.02_270)]'}`}
+              title="Listings view"
             >
               <Grid3X3 className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setViewMode('my-listings')}
+              className={`p-1.5 rounded transition-colors ${viewMode === 'my-listings' ? 'bg-[var(--indigo)] text-white' : 'text-[oklch(0.5_0.03_270)] hover:bg-[oklch(0.94_0.02_270)]'}`}
+              title="My listings"
+            >
+              <List className="w-4 h-4" />
             </button>
           </div>
         </div>
@@ -413,15 +433,40 @@ export default function MarketplacePage() {
                   <Zap className="w-4 h-4" /> Start Listing
                 </button>
               </div>
+
+              {connected && (
+                <div className="panel">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-black text-sm">My Listings</span>
+                    <span className="tag tag-rose">{myActiveListings.length}</span>
+                  </div>
+                  <p className="text-[11px] text-[oklch(0.55_0.03_270)] mb-3 leading-relaxed">
+                    Track your active NFTs, listing prices, and time listed in one place.
+                  </p>
+                  <button
+                    onClick={() => setViewMode('my-listings')}
+                    className="btn-outline w-full text-sm"
+                  >
+                    <List className="w-4 h-4" /> View My Listings
+                  </button>
+                </div>
+              )}
             </div>
           </div>
-        ) : (
+        ) : viewMode === 'listings' ? (
           /* ====== LISTINGS GRID VIEW ====== */
           <ListingsView
             collection={activeCol}
             listings={activeListings}
             buying={buying}
             onBuy={handleBuy}
+            onBack={() => setViewMode('collections')}
+          />
+        ) : (
+          /* ====== MY LISTINGS VIEW ====== */
+          <MyListingsView
+            myListings={myActiveListings}
+            onStartListing={() => setShowListModal(true)}
             onBack={() => setViewMode('collections')}
           />
         )}
@@ -683,6 +728,119 @@ function FullListingCard({ listing, buying, onBuy }: {
   );
 }
 
+function MyListingsView({
+  myListings,
+  onStartListing,
+  onBack,
+}: {
+  myListings: Array<{
+    id: string;
+    tokenId: number;
+    tokenName: string;
+    image: string;
+    level: number;
+    rarity: 'common' | 'rare' | 'legendary';
+    price: string;
+    currency: 'ETH' | 'USDC';
+    listingType: 'fixed' | 'auction';
+    listedAt: string;
+    durationDays: number;
+  }>;
+  onStartListing: () => void;
+  onBack: () => void;
+}) {
+  const totalListedValue = myListings.reduce((sum, listing) => sum + (parseFloat(listing.price) || 0), 0);
+
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-6">
+        <button onClick={onBack} className="text-xs font-bold text-[var(--indigo)] hover:underline flex items-center gap-1">
+          ← Collections
+        </button>
+        <ChevronRight className="w-3.5 h-3.5 text-[oklch(0.65_0.03_270)]" />
+        <h2 className="font-black text-base">My Listed NFTs</h2>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <div className="panel">
+          <p className="stat-label">Active Listings</p>
+          <p className="stat-number text-[var(--indigo)]">{myListings.length}</p>
+        </div>
+        <div className="panel">
+          <p className="stat-label">Total Listed Value</p>
+          <p className="stat-number text-[var(--teal)]">{totalListedValue.toFixed(3)} ETH</p>
+        </div>
+        <div className="panel">
+          <p className="stat-label">Average List Price</p>
+          <p className="stat-number text-[var(--amber)]">
+            {myListings.length > 0 ? (totalListedValue / myListings.length).toFixed(3) : '0.000'} ETH
+          </p>
+        </div>
+      </div>
+
+      {myListings.length === 0 ? (
+        <div className="panel text-center py-16">
+          <Tag className="w-10 h-10 text-[oklch(0.65_0.03_270)] mx-auto mb-3" />
+          <p className="font-black text-lg mb-2">No Active Listings</p>
+          <p className="text-sm text-[oklch(0.55_0.03_270)] mb-5">List one of your NFTs to see it here with pricing and status.</p>
+          <button onClick={onStartListing} className="btn-primary">
+            <Zap className="w-4 h-4" /> Start Listing
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+          {myListings.map((listing) => {
+            const color = RARITY_COLOR[listing.rarity];
+            return (
+              <article key={listing.id} className="nft-grid-card group flex flex-col">
+                <div className="relative aspect-square overflow-hidden">
+                  <Image
+                    src={listing.image}
+                    alt={listing.tokenName}
+                    fill
+                    className="object-cover group-hover:scale-105 transition-transform duration-500"
+                    sizes="(max-width: 640px) 50vw, 25vw"
+                  />
+                  <div className="absolute top-2 left-2">
+                    <span className="tag tag-rose">Active</span>
+                  </div>
+                  <div className="absolute top-2 right-2">
+                    <span className="tag" style={{ color, backgroundColor: `${color}18`, borderColor: `${color}44` }}>
+                      Lv {listing.level}
+                    </span>
+                  </div>
+                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/75 to-transparent px-3 py-2.5">
+                    <p className="text-white font-black text-base">{listing.price} {listing.currency}</p>
+                  </div>
+                </div>
+                <div className="p-3 flex flex-col gap-2 flex-1">
+                  <div>
+                    <h3 className="font-black text-sm truncate">{listing.tokenName}</h3>
+                    <p className="text-[10px] font-mono text-[oklch(0.6_0.03_270)] mt-0.5">
+                      Listed {formatTimeAgo(listing.listedAt)} · {listing.listingType}
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-[oklch(0.6_0.03_270)]">
+                    <span>Duration</span>
+                    <span className="font-black text-[oklch(0.35_0.03_270)]">
+                      {listing.durationDays > 0 ? `${listing.durationDays} days` : 'No expiry'}
+                    </span>
+                  </div>
+                  <Link href={`/nft/${listing.tokenId}`} className="contents">
+                    <button className="btn-outline w-full py-1.5 text-xs gap-1 mt-auto">
+                      <Eye className="w-3.5 h-3.5" /> View NFT
+                    </button>
+                  </Link>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── List NFT Modal — multi-step ───────────────────────────────────────────────
 
 const LIST_STEPS = [
@@ -699,7 +857,10 @@ interface ListNFTModalProps {
 }
 
 function ListNFTModal({ onClose, userNFTs }: ListNFTModalProps) {
+  const { address } = useWallet();
   const { runTx } = useTxToast();
+  const { addTransaction, updateTransaction } = useTxHistory();
+  const { addListing } = useMyListings();
   const [step, setStep]         = useState(1);
   const [selectedNFT, setSelectedNFT] = useState<any | null>(null);
   const [price, setPrice]       = useState('');
@@ -731,19 +892,49 @@ function ListNFTModal({ onClose, userNFTs }: ListNFTModalProps) {
 
   const handleList = async () => {
     if (!selectedNFT || !price) return;
+    const txId = addTransaction({
+      action: 'Listed',
+      tokenId: selectedNFT.tokenId,
+      tokenName: selectedNFT.name,
+      amount: `${price} ETH`,
+      timestamp: new Date().toISOString(),
+      status: 'pending',
+    });
+
     setListing(true);
     try {
       await runTx(
         `Listing ${selectedNFT?.name} for ${price} ETH…`,
         async () => {
           // Call real marketplace transaction
-          await sendMarketplaceTransaction(price);
+          const result = await sendMarketplaceTransaction(price);
+          updateTransaction(txId, {
+            status: 'success',
+            hash: result.txHash,
+          });
+
+          if (address) {
+            addListing({
+              tokenId: selectedNFT.tokenId,
+              tokenName: selectedNFT.name,
+              image: selectedNFT.image,
+              level: selectedNFT.level,
+              rarity: selectedNFT.rarity,
+              price,
+              currency: 'ETH',
+              listingType: 'fixed',
+              durationDays: Number(duration),
+              seller: address,
+              txHash: result.txHash,
+            });
+          }
         },
         `${selectedNFT?.name} listed successfully!`,
       );
       setListing(false);
       setStep(5);
     } catch (error) {
+      updateTransaction(txId, { status: 'failed' });
       console.error('Listing error:', error);
       setListing(false);
     }

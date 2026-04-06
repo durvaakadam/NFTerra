@@ -4,6 +4,7 @@ import { Analytics } from '@vercel/analytics/next'
 import { WalletProvider } from '@/lib/context/WalletContext'
 import { TxToastProvider } from '@/lib/context/TxToastContext'
 import { NFTStoreProvider } from '@/lib/context/NFTStoreContext'
+import { MyListingsProvider } from '@/lib/context/MyListingsContext'
 import { TxHistoryProvider } from '@/lib/context/TxHistoryContext'
 import './globals.css'
 
@@ -33,8 +34,10 @@ export default function RootLayout({
           <TxToastProvider>
             <TxHistoryProvider>
               <NFTStoreProvider>
-                {children}
-                <Analytics />
+                <MyListingsProvider>
+                  {children}
+                  <Analytics />
+                </MyListingsProvider>
               </NFTStoreProvider>
             </TxHistoryProvider>
           </TxToastProvider>

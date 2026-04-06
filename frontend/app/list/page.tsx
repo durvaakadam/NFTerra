@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
   ReferenceLine,
@@ -10,8 +11,9 @@ import {
 import { Navbar } from '@/components/shared/Navbar';
 import { Footer } from '@/components/shared/Footer';
 import { useWallet } from '@/lib/context/WalletContext';
-import { useTxToast } from '@/lib/context/TxToastContext';
+import { useTxHistory } from '@/lib/context/TxHistoryContext';
 import { useNFTStore } from '@/lib/context/NFTStoreContext';
+import { useMyListings } from '@/lib/context/MyListingsContext';
 import { EVOLUTION_STAGES, NFT } from '@/lib/mock-data';
 import { COLLECTIONS } from '@/lib/marketplace-data';
 import { sendMarketplaceTransaction, getNFTsByOwner } from '@/lib/contract';
@@ -43,9 +45,11 @@ const DURATIONS = [
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function ListNFTPage() {
+  const searchParams = useSearchParams();
   const { connected, connectWallet, address } = useWallet();
-  const { runTx } = useTxToast();
+  const { addTransaction, updateTransaction } = useTxHistory();
   const { newNFTs } = useNFTStore();
+  const { addListing } = useMyListings();
 
   const [step, setStep] = useState(1);
   const [txStatus, setTxStatus] = useState<'idle' | 'approving' | 'signing' | 'success' | 'error'>('idle');
@@ -94,7 +98,20 @@ export default function ListNFTPage() {
   }, [blockchainNFTs, newNFTs]);
 
   // Step 1 — Select NFT
-  const [selectedNftId, setSelectedNftId] = useState<number | null>(null);
+  // Check if nftId is in query params to auto-select
+  const nftIdFromParams = searchParams?.get('nftId');
+  const [selectedNftId, setSelectedNftId] = useState<number | null>(
+    nftIdFromParams ? parseInt(nftIdFromParams, 10) : null
+  );
+
+  // If NFT is pre-selected via URL, skip to step 2
+  useEffect(() => {
+    if (nftIdFromParams && !selectedNftId) {
+      const tokenId = parseInt(nftIdFromParams, 10);
+      setSelectedNftId(tokenId);
+      setStep(2);
+    }
+  }, [nftIdFromParams]);
 
   // Step 2 — Price
   const [listingType, setListingType] = useState<'fixed' | 'auction'>('fixed');
@@ -136,6 +153,15 @@ export default function ListNFTPage() {
 
   const handleList = async () => {
     if (!selectedNft || !price || !address) return;
+
+    const txId = addTransaction({
+      action: 'Listed',
+      tokenId: selectedNft.tokenId,
+      tokenName: selectedNft.name,
+      amount: `${price} ${currency}`,
+      timestamp: new Date().toISOString(),
+      status: 'pending',
+    });
     
     setTxStatus('approving');
     await new Promise(r => setTimeout(r, 1500)); // UX delay for visual feedback
@@ -144,10 +170,30 @@ export default function ListNFTPage() {
     try {
       // Call real contract to send listing transaction
       const result = await sendMarketplaceTransaction(price);
+
+      updateTransaction(txId, {
+        status: 'success',
+        hash: result.txHash,
+      });
+
+      addListing({
+        tokenId: selectedNft.tokenId,
+        tokenName: selectedNft.name,
+        image: selectedNft.image,
+        level: selectedNft.level,
+        rarity: selectedNft.rarity,
+        price,
+        currency,
+        listingType,
+        durationDays: Number(duration),
+        seller: address,
+        txHash: result.txHash,
+      });
       
       // Update status to success
       setTxStatus('success');
     } catch (error) {
+      updateTransaction(txId, { status: 'failed' });
       console.error('List error:', error);
       setTxStatus('error');
     }

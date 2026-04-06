@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useWallet } from '@/lib/context/WalletContext';
 import { useTxHistory } from '@/lib/context/TxHistoryContext';
 import { useNFTStore } from '@/lib/context/NFTStoreContext';
+import { useMyListings } from '@/lib/context/MyListingsContext';
 import { useContract } from '@/hooks/use-contract';
 import { Navbar } from '@/components/shared/Navbar';
 import { Footer } from '@/components/shared/Footer';
@@ -36,6 +37,7 @@ export default function NFTDetailPage({ params }: { params: Promise<{ id: string
   const { levelUp, levelingUp, levelUpError } = useContract();
   const { transactions } = useTxHistory();
   const { newNFTs } = useNFTStore();
+  const { listings } = useMyListings();
   
   const [paramsValue, setParamsValue] = React.useState<{ id: string } | null>(null);
   const [nft, setNft] = useState<NFTState | null>(null);
@@ -70,8 +72,13 @@ export default function NFTDetailPage({ params }: { params: Promise<{ id: string
         totalMinted,
       });
       
+      // If NFT doesn't exist on-chain, check if there's a listing for it
       if (!nftExists && tokenId >= totalMinted) {
-        setError(`NFT #${tokenId} has not been minted yet. Total minted: ${totalMinted}`);
+        const hasListing = listings.some(l => l.tokenId === tokenId && l.status === 'active');
+        if (!hasListing) {
+          setError(`NFT #${tokenId} has not been minted yet. Total minted: ${totalMinted}`);
+        }
+        // If there's a listing, we'll continue showing it with fallback data
       }
     } catch (err) {
       console.error('Error loading NFT:', err);
@@ -108,9 +115,7 @@ export default function NFTDetailPage({ params }: { params: Promise<{ id: string
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const isOwner = connected && address && nft?.owner?.toLowerCase() === address.toLowerCase();
-
-  if (!paramsValue || loading) {
+  if (loading && !paramsValue) {
     return (
       <div className="min-h-screen bg-[var(--background)] flex items-center justify-center">
         <Loader2 className="w-8 h-8 text-[var(--indigo)] animate-spin" />
@@ -118,7 +123,10 @@ export default function NFTDetailPage({ params }: { params: Promise<{ id: string
     );
   }
 
-  if (error || !nft) {
+  // Check if there's a listing even if blockchain lookup failed
+  const hasListing = paramsValue && listings.some(l => l.tokenId === parseInt(paramsValue.id, 10) && l.status === 'active');
+  
+  if (error && !nft && !hasListing) {
     return (
       <div className="min-h-screen bg-[var(--background)] flex flex-col">
         <Navbar />
@@ -137,31 +145,74 @@ export default function NFTDetailPage({ params }: { params: Promise<{ id: string
     );
   }
 
+  // If we have a listing but no on-chain data, create a placeholder NFT from the listing
+  let displayNFT = nft;
+  if (hasListing && !nft && paramsValue) {
+    const tokenId = parseInt(paramsValue.id, 10);
+    const listing = listings.find(l => l.tokenId === tokenId && l.status === 'active');
+    if (listing) {
+      displayNFT = {
+        tokenId,
+        name: listing.tokenName,
+        level: listing.level,
+        owner: listing.seller,
+        rarity: listing.rarity,
+        exists: false,
+        totalMinted: 0,
+      };
+    }
+  }
+
+  if (!displayNFT) {
+    return (
+      <div className="min-h-screen bg-[var(--background)] flex flex-col">
+        <Navbar />
+        <main className="flex-1 flex items-center justify-center">
+          <div className="panel text-center py-12 px-8">
+            <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+            <h2 className="font-black text-xl mb-2">NFT Not Found</h2>
+            <p className="text-[oklch(0.5_0.03_270)] mb-4">This NFT does not exist or has not been minted yet.</p>
+            <Link href="/dashboard">
+              <button className="btn-primary">Back to Dashboard</button>
+            </Link>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
+
   // Prefer full metadata (name, image, rarity) from local NFT store when available
-  const storeNFT = newNFTs.find(n => n.tokenId === nft.tokenId);
-  const displayName = storeNFT?.name || nft.name;
-  const displayRarity = (storeNFT?.rarity || nft.rarity) as 'common' | 'rare' | 'legendary';
-  const stageIndex = Math.max(0, Math.min(nft.level - 1, EVOLUTION_STAGES.length - 1));
+  const storeNFT = newNFTs.find(n => n.tokenId === displayNFT.tokenId);
+  const displayName = storeNFT?.name || displayNFT.name;
+  const displayRarity = (storeNFT?.rarity || displayNFT.rarity) as 'common' | 'rare' | 'legendary';
+  const stageIndex = Math.max(0, Math.min(displayNFT.level - 1, EVOLUTION_STAGES.length - 1));
   const fallbackImage = EVOLUTION_STAGES[stageIndex]?.image || '/nft-1.jpg';
   const displayImage = storeNFT?.image || fallbackImage;
+  
+  // Get listing info if available
+  const listing = listings.find(l => l.tokenId === displayNFT.tokenId && l.status === 'active');
+
+  const isOwner = connected && address && displayNFT?.owner?.toLowerCase() === address.toLowerCase();
 
   const ATTRS = [
-    { k: 'Token ID',      v: `#${nft.tokenId}` },
-    { k: 'Owner',         v: formatAddress(nft.owner) },
-    { k: 'Current Level', v: `${nft.level} / 5` },
-    { k: 'Stage',         v: getEvolutionStage(nft.level).name },
+    { k: 'Token ID',      v: `#${displayNFT.tokenId}` },
+    { k: 'Owner',         v: formatAddress(displayNFT.owner) },
+    { k: 'Current Level', v: `${displayNFT.level} / 5` },
+    { k: 'Stage',         v: getEvolutionStage(displayNFT.level).name },
     { k: 'Rarity',        v: displayRarity.charAt(0).toUpperCase() + displayRarity.slice(1) },
     { k: 'Standard',      v: 'ERC-721' },
     { k: 'Network',       v: 'Ethereum' },
     { k: 'Contract',      v: formatAddress(CONTRACT_ADDRESS) },
-    { k: 'Evolution',     v: `${Math.round((nft.level / 5) * 100)}%` },
+    { k: 'Evolution',     v: `${Math.round((displayNFT.level / 5) * 100)}%` },
     { k: 'Mint Price',    v: '0.05 ETH' },
     { k: 'Level Up Cost', v: '0.02 ETH' },
+    ...(listing ? [{ k: 'Listed Price', v: `${listing.price} ${listing.currency}` }] : []),
   ];
 
-  const evolution = getEvolutionStage(nft.level);
+  const evolution = getEvolutionStage(displayNFT.level);
   const relatedTxs = transactions.filter(tx => 
-    String(tx.tokenId) === String(nft.tokenId) || tx.tokenName?.includes(`#${nft.tokenId}`)
+    String(tx.tokenId) === String(displayNFT.tokenId) || tx.tokenName?.includes(`#${displayNFT.tokenId}`)
   );
 
   return (
@@ -171,9 +222,9 @@ export default function NFTDetailPage({ params }: { params: Promise<{ id: string
       <main className="flex-1 px-4 sm:px-6 lg:px-8 pt-10 pb-20 max-w-7xl mx-auto w-full">
 
         {/* Breadcrumb */}
-        <Link href="/dashboard" className="inline-flex items-center gap-1.5 text-sm font-semibold text-[oklch(0.5_0.03_270)] hover:text-[var(--indigo)] transition-colors mb-8">
+        <Link href={listing ? "/marketplace" : "/dashboard"} className="inline-flex items-center gap-1.5 text-sm font-semibold text-[oklch(0.5_0.03_270)] hover:text-[var(--indigo)] transition-colors mb-8">
           <ChevronLeft className="w-4 h-4" />
-          Back to Dashboard
+          Back to {listing ? "Marketplace" : "Dashboard"}
         </Link>
 
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
@@ -194,7 +245,7 @@ export default function NFTDetailPage({ params }: { params: Promise<{ id: string
               <div className="p-4 flex items-center justify-between">
                 <div>
                   <p className="font-black">{displayName}</p>
-                  <p className="text-xs font-mono text-[oklch(0.6_0.03_270)]">#{nft.tokenId}</p>
+                  <p className="text-xs font-mono text-[oklch(0.6_0.03_270)]">#{displayNFT.tokenId}</p>
                 </div>
                 <span className={`tag ${RARITY_TAG[displayRarity]}`}>
                   {displayRarity.charAt(0).toUpperCase() + displayRarity.slice(1)}
@@ -220,33 +271,42 @@ export default function NFTDetailPage({ params }: { params: Promise<{ id: string
                 </div>
               )}
 
-              <button
-                onClick={handleLevelUp}
-                disabled={levelingUp || nft.level >= 5 || !isOwner}
-                className={`btn-primary w-full py-3 flex items-center justify-center gap-2 ${(nft.level >= 5 || !isOwner) ? 'opacity-40 cursor-not-allowed' : ''}`}
-              >
-                <Zap className="w-4 h-4" />
-                {nft.level >= 5 ? 'Max Level Reached' : `Level Up (0.02 ETH)`}
-              </button>
+              {!listing && (
+                <button
+                  onClick={handleLevelUp}
+                  disabled={levelingUp || displayNFT.level >= 5 || !isOwner}
+                  className={`btn-primary w-full py-3 flex items-center justify-center gap-2 ${(displayNFT.level >= 5 || !isOwner) ? 'opacity-40 cursor-not-allowed' : ''}`}
+                >
+                  <Zap className="w-4 h-4" />
+                  {displayNFT.level >= 5 ? 'Max Level Reached' : `Level Up (0.02 ETH)`}
+                </button>
+              )}
 
-              {nft.level >= 5 && (
+              {listing && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                  <p className="text-sm font-bold text-amber-900 mb-2">Listed for Sale</p>
+                  <p className="font-black text-lg text-amber-700">{listing.price} {listing.currency}</p>
+                </div>
+              )}
+
+              {displayNFT.level >= 5 && !listing && (
                 <p className="text-xs text-[oklch(0.5_0.03_270)] text-center">This NFT has reached maximum evolution!</p>
               )}
 
-              {!isOwner && nft.exists && (
+              {!isOwner && displayNFT.exists && !listing && (
                 <p className="text-xs text-[oklch(0.5_0.03_270)] text-center">You don't own this NFT</p>
               )}
 
               <div className="flex gap-2 pt-2">
                 <button
-                  onClick={() => copyToClipboard(nft.tokenId.toString())}
+                  onClick={() => copyToClipboard(displayNFT.tokenId.toString())}
                   className="btn-secondary flex-1 flex items-center justify-center gap-1 text-sm py-2"
                 >
                   <Copy className="w-3 h-3" />
                   {copied ? 'Copied!' : 'Copy ID'}
                 </button>
                 <a
-                  href={`https://etherscan.io/token/${CONTRACT_ADDRESS}?a=${nft.tokenId}`}
+                  href={`https://etherscan.io/token/${CONTRACT_ADDRESS}?a=${displayNFT.tokenId}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="btn-secondary flex-1 flex items-center justify-center gap-1 text-sm py-2"
@@ -267,18 +327,18 @@ export default function NFTDetailPage({ params }: { params: Promise<{ id: string
                 <h3 className="font-black text-lg mb-2">Evolution Status</h3>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-semibold">Level {nft.level}</span>
-                    <span className="text-sm font-semibold text-[var(--indigo)]">{Math.round((nft.level / 5) * 100)}%</span>
+                    <span className="text-sm font-semibold">Level {displayNFT.level}</span>
+                    <span className="text-sm font-semibold text-[var(--indigo)]">{Math.round((displayNFT.level / 5) * 100)}%</span>
                   </div>
                   <div className="w-full bg-[oklch(0.88_0.02_270)] rounded-full h-2">
                     <div 
                       className="bg-gradient-to-r from-[var(--indigo)] to-[var(--teal)] h-2 rounded-full transition-all"
-                      style={{ width: `${(nft.level / 5) * 100}%` }}
+                      style={{ width: `${(displayNFT.level / 5) * 100}%` }}
                     />
                   </div>
                   <p className="text-xs text-[oklch(0.6_0.03_270)]">
-                    {nft.level < 5 
-                      ? `${5 - nft.level} more level${5 - nft.level === 1 ? '' : 's'} to reach Immortal stage`
+                    {displayNFT.level < 5 
+                      ? `${5 - displayNFT.level} more level${5 - displayNFT.level === 1 ? '' : 's'} to reach Immortal stage`
                       : 'Maximum evolution reached!'
                     }
                   </p>
@@ -291,8 +351,8 @@ export default function NFTDetailPage({ params }: { params: Promise<{ id: string
                   {[1, 2, 3, 4, 5].map(level => (
                     <div key={level} className="flex flex-col items-center gap-1">
                       <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-lg ${
-                        level <= nft.level 
-                          ? RARITY_BG[nft.rarity]
+                        level <= displayNFT.level 
+                          ? RARITY_BG[displayRarity]
                           : 'bg-[oklch(0.88_0.02_270)]'
                       }`}>
                         {STAGE_EMOJIS[level - 1]}
@@ -330,18 +390,18 @@ export default function NFTDetailPage({ params }: { params: Promise<{ id: string
                   </div>
                   <div className="flex items-center justify-between">
                     <span>Power Level:</span>
-                    <span className="font-bold">{nft.level * 20}%</span>
+                    <span className="font-bold">{displayNFT.level * 20}%</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span>Unique ID:</span>
-                    <span className="font-mono text-xs font-bold">{nft.tokenId}</span>
+                    <span className="font-mono text-xs font-bold">{displayNFT.tokenId}</span>
                   </div>
                 </div>
               </div>
             </div>
 
             {/* Transaction History */}
-            {relatedTxs.length > 0 && (
+            {!listing && relatedTxs.length > 0 && (
               <div className="panel space-y-3">
                 <h3 className="font-black text-lg">Transaction History</h3>
                 <div className="space-y-2 max-h-64 overflow-y-auto">
@@ -367,22 +427,60 @@ export default function NFTDetailPage({ params }: { params: Promise<{ id: string
               </div>
             )}
 
-            {/* Owner Info */}
-            <div className="panel space-y-3">
-              <h3 className="font-black text-lg">Ownership</h3>
-              <div className="space-y-2">
-                <div>
-                  <p className="text-xs font-semibold text-[oklch(0.6_0.03_270)] uppercase mb-1">Owner Address</p>
-                  <p className="font-mono text-sm break-all font-bold">{nft.owner}</p>
-                </div>
-                {isOwner && (
-                  <div className="bg-green-50 border border-green-200 rounded-lg p-2 flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-green-600 flex-shrink-0" />
-                    <span className="text-sm font-semibold text-green-700">You own this NFT</span>
+            {listing && (
+              <div className="panel space-y-3">
+                <h3 className="font-black text-lg">Listing Details</h3>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[oklch(0.6_0.03_270)]">Price</span>
+                    <span className="font-black">{listing.price} {listing.currency}</span>
                   </div>
-                )}
+                  <div className="flex items-center justify-between">
+                    <span className="text-[oklch(0.6_0.03_270)]">Type</span>
+                    <span className="font-black capitalize">{listing.listingType}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[oklch(0.6_0.03_270)]">Duration</span>
+                    <span className="font-black">{listing.durationDays > 0 ? `${listing.durationDays} days` : 'No expiry'}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[oklch(0.6_0.03_270)]">Status</span>
+                    <span className="font-black text-[var(--rose)]">Listed</span>
+                  </div>
+                </div>
               </div>
-            </div>
+            )}
+
+            {/* Owner Info */}
+            {!listing && (
+              <div className="panel space-y-3">
+                <h3 className="font-black text-lg">Ownership</h3>
+                <div className="space-y-2">
+                  <div>
+                    <p className="text-xs font-semibold text-[oklch(0.6_0.03_270)] uppercase mb-1">Owner Address</p>
+                    <p className="font-mono text-sm break-all font-bold">{displayNFT.owner}</p>
+                  </div>
+                  {isOwner && (
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-2 flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-green-600 flex-shrink-0" />
+                      <span className="text-sm font-semibold text-green-700">You own this NFT</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {listing && (
+              <div className="panel space-y-3">
+                <h3 className="font-black text-lg">Seller Info</h3>
+                <div className="space-y-2">
+                  <div>
+                    <p className="text-xs font-semibold text-[oklch(0.6_0.03_270)] uppercase mb-1">Seller Address</p>
+                    <p className="font-mono text-sm break-all font-bold">{listing.seller}</p>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </main>
