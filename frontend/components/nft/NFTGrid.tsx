@@ -12,11 +12,12 @@ interface NFTGridProps {
   onLevelUp?: (tokenId: number) => void;
   onList?: (nft: NFT) => void;
   levelingTokenId?: number | null;
+  levelUpStage?: 'idle' | 'initiating' | 'tx-progress' | 'evolution-progress' | 'revealing' | 'complete' | 'error';
   loading?: boolean;
   emptyMessage?: string;
 }
 
-export function NFTGrid({ nfts, newNFTIds, onLevelUp, onList, levelingTokenId, loading, emptyMessage }: NFTGridProps) {
+export function NFTGrid({ nfts, newNFTIds, onLevelUp, onList, levelingTokenId, levelUpStage = 'idle', loading, emptyMessage }: NFTGridProps) {
   if (nfts.length === 0) {
     return (
       <Empty>
@@ -46,6 +47,7 @@ export function NFTGrid({ nfts, newNFTIds, onLevelUp, onList, levelingTokenId, l
           onLevelUp={onLevelUp}
           onList={onList}
           loading={levelingTokenId === nft.tokenId ? true : loading}
+          levelUpStage={levelingTokenId === nft.tokenId ? levelUpStage : 'idle'}
           isNew={newNFTIds?.includes(nft.tokenId)}
         />
       ))}

@@ -11,6 +11,7 @@ import { useContract } from '@/hooks/use-contract';
 import { Navbar } from '@/components/shared/Navbar';
 import { Footer } from '@/components/shared/Footer';
 import { NFTGrid } from '@/components/nft/NFTGrid';
+import { LevelUpModal } from '@/components/nft/LevelUpModal';
 import { generateMockNFT, NFT, EVOLUTION_STAGES } from '@/lib/mock-data';
 import { formatTimeAgo } from '@/lib/marketplace-data';
 import { formatAddress } from '@/lib/web3-utils';
@@ -53,6 +54,33 @@ export default function DashboardPage() {
   const [loadingNFTs, setLoadingNFTs] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [levelingNFTId, setLevelingNFTId] = useState<number | null>(null);
+  const [levelUpStage, setLevelUpStage] = useState<'idle' | 'initiating' | 'tx-progress' | 'evolution-progress' | 'revealing' | 'complete' | 'error'>('idle');
+  const [levelUpModalOpen, setLevelUpModalOpen] = useState(false);
+  const [selectedNFTForLevelUp, setSelectedNFTForLevelUp] = useState<NFT | null>(null);
+
+  const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+  const playEvolutionChime = () => {
+    try {
+      const AudioCtx = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(440, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.22);
+      gain.gain.setValueAtTime(0.001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.08, ctx.currentTime + 0.05);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.28);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.3);
+    } catch {
+      // Silent fallback if browser audio context is blocked.
+    }
+  };
 
   // Fetch NFTs from blockchain
   useEffect(() => {
@@ -98,12 +126,13 @@ export default function DashboardPage() {
   });
   newNFTs.forEach((nft) => {
     const existing = nftsMap.get(nft.tokenId);
-    // If on-chain data exists, prefer its level/image/owner and only let
-    // the local store override softer metadata like name.
+    // If on-chain data exists, prefer its level/owner but keep custom image if uploaded
     if (existing) {
       nftsMap.set(nft.tokenId, {
         ...existing,
         name: nft.name || existing.name,
+        // Preserve custom uploaded image if it's a data URL (base64), otherwise use blockchain image
+        image: nft.image && nft.image.startsWith('data:') ? nft.image : existing.image,
       });
     } else {
       nftsMap.set(nft.tokenId, nft);
@@ -158,6 +187,20 @@ export default function DashboardPage() {
   };
 
   // ── Level Up NFT ──────────────────────────────────────────────────────────────
+  const handleLevelUpClick = (tokenId: number) => {
+    const nft = nfts.find(n => n.tokenId === tokenId);
+    if (nft) {
+      setSelectedNFTForLevelUp(nft);
+      setLevelUpModalOpen(true);
+    }
+  };
+
+  const handleLevelUpConfirm = async () => {
+    if (!selectedNFTForLevelUp) return;
+    await handleLevelUp(selectedNFTForLevelUp.tokenId);
+    setLevelUpModalOpen(false);
+  };
+
   const handleLevelUp = async (tokenId: number) => {
     if (!connected) {
       alert('Please connect your wallet first');
@@ -168,6 +211,13 @@ export default function DashboardPage() {
     if (!nft || nft.level >= 5) return;
 
     setLevelingNFTId(tokenId);
+    setLevelUpStage('initiating');
+    await wait(650);
+
+    let levelUpFailed = false;
+
+    // Generate a mock hash for the pending transaction
+    const mockHash = '0x' + Array(64).fill(0).map(() => Math.floor(Math.random() * 16).toString(16)).join('');
 
     // Create pending transaction record
     const txId = addTransaction({
@@ -176,20 +226,27 @@ export default function DashboardPage() {
       tokenName: nft.name,
       timestamp: new Date().toISOString(),
       status: 'pending',
+      hash: mockHash,
     });
 
     await runTx(
       `Leveling up ${nft.name}…`,
       async () => {
         try {
+          setLevelUpStage('tx-progress');
+
           // Call real contract function (will prompt MetaMask)
           const result = await levelUp(tokenId);
           if (result) {
+            setLevelUpStage('evolution-progress');
+            await wait(900);
+
             // Update transaction with success
             updateTransaction(txId, {
               status: 'success',
               hash: result.txHash,
             });
+
             // Only update this specific NFT in blockchain data
             const newLevel = result.newLevel;
             const stageIndex = Math.max(0, Math.min(newLevel - 1, EVOLUTION_STAGES.length - 1));
@@ -205,10 +262,18 @@ export default function DashboardPage() {
                   : n,
               ),
             );
+
+            setLevelUpStage('revealing');
+            await wait(700);
+            setLevelUpStage('complete');
+            playEvolutionChime();
+            await wait(800);
           } else {
             throw new Error('Level up failed');
           }
         } catch (err: any) {
+          levelUpFailed = true;
+          setLevelUpStage('error');
           updateTransaction(txId, { status: 'failed' });
           
           // If NFT doesn't exist on contract, remove it from display (contract was redeployed/reset)
@@ -251,7 +316,12 @@ export default function DashboardPage() {
       'Level Up failed',
     );
 
+    if (levelUpFailed) {
+      await wait(900);
+    }
+
     setLevelingNFTId(null);
+    setLevelUpStage('idle');
   };
 
   // ── List NFT ──────────────────────────────────────────────────────────────────
@@ -362,9 +432,10 @@ export default function DashboardPage() {
             <NFTGrid
               nfts={nfts}
               newNFTIds={newNFTs.map(n => n.tokenId)}
-              onLevelUp={handleLevelUp}
+              onLevelUp={handleLevelUpClick}
               onList={handleList}
               levelingTokenId={levelingNFTId}
+              levelUpStage={levelUpStage}
               emptyMessage="You don't have any NFTs yet. Mint one to get started!"
             />
           </>
@@ -475,6 +546,17 @@ export default function DashboardPage() {
 
 
       </main>
+
+      {/* Level Up Modal */}
+      {selectedNFTForLevelUp && (
+        <LevelUpModal
+          isOpen={levelUpModalOpen}
+          nft={selectedNFTForLevelUp}
+          onConfirm={handleLevelUpConfirm}
+          onCancel={() => setLevelUpModalOpen(false)}
+          isLoading={levelingNFTId === selectedNFTForLevelUp.tokenId}
+        />
+      )}
 
       <Footer />
     </div>

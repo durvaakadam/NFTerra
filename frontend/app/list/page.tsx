@@ -154,6 +154,9 @@ export default function ListNFTPage() {
   const handleList = async () => {
     if (!selectedNft || !price || !address) return;
 
+    // Generate a mock hash for the pending transaction
+    const mockHash = '0x' + Array(64).fill(0).map(() => Math.floor(Math.random() * 16).toString(16)).join('');
+
     const txId = addTransaction({
       action: 'Listed',
       tokenId: selectedNft.tokenId,
@@ -161,6 +164,7 @@ export default function ListNFTPage() {
       amount: `${price} ${currency}`,
       timestamp: new Date().toISOString(),
       status: 'pending',
+      hash: mockHash,
     });
     
     setTxStatus('approving');

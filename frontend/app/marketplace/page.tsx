@@ -8,6 +8,7 @@ import {
 } from 'recharts';
 import { Navbar } from '@/components/shared/Navbar';
 import { Footer } from '@/components/shared/Footer';
+import { BuyingPanel } from '@/components/marketplace/BuyingPanel';
 import {
   COLLECTIONS, generateCollectionListings, generateMarketplaceListings,
   Listing, Collection, formatTimeAgo,
@@ -59,7 +60,8 @@ export default function MarketplacePage() {
   const [activeCol, setActiveCol]     = useState<Collection>(COLLECTIONS[0]);
   const [viewMode, setViewMode]       = useState<'collections' | 'listings' | 'my-listings'>('collections');
   const [search, setSearch]           = useState('');
-  const [buying, setBuying]           = useState<string | null>(null);
+  const [buyingListing, setBuyingListing] = useState<Listing | null>(null);
+  const [isBuyLoading, setIsBuyLoading] = useState(false);
   const [showListModal, setShowListModal] = useState(false);
   const [sortBy, setSortBy]           = useState<'volume' | 'floor' | 'change'>('volume');
 
@@ -87,55 +89,40 @@ export default function MarketplacePage() {
     [activeCol.id],
   );
 
-  const handleBuy = async (listing: Listing) => {
-    if (!connected || !address) { alert('Connect your wallet first.'); return; }
-    setBuying(listing.id);
-    
-    // Create pending transaction record
-    const txId = addTransaction({
-      action: 'Bought',
-      tokenId: listing.nft.tokenId,
-      tokenName: listing.nft.name,
-      amount: listing.price,
-      timestamp: new Date().toISOString(),
-      status: 'pending',
-    });
+  const handleBuy = (listing: Listing) => {
+    if (!connected || !address) {
+      alert('Connect your wallet first.');
+      return;
+    }
+    setBuyingListing(listing);
+  };
 
-    await runTx(
-      `Buying ${listing.nft.name}`,
-      async () => {
-        try {
-          // Real MetaMask transaction
-          const result = await sendMarketplaceTransaction(listing.price);
-          updateTransaction(txId, {
-            status: 'success',
-            hash: result.txHash,
-          });
-          
-          // Add the purchased NFT to your collection
-          addNewNFT({
-            ...listing.nft,
-            owner: address,
-            lastLevelUp: new Date().toISOString(),
-          });
-        } catch (err: any) {
-          updateTransaction(txId, { status: 'failed' });
-          throw err;
-        }
-      },
-      `Purchased ${listing.nft.name}! Check Dashboard.`,
-      'Purchase failed',
-    );
+  const handleCompletePurchase = async () => {
+    if (!buyingListing || !address) return;
+    setIsBuyLoading(true);
     
-    setBuying(null);
+    // The transaction was already made by BuyingPanel, so just update UI/stores
+    try {
+      // Add the purchased NFT to your collection
+      addNewNFT({
+        ...buyingListing.nft,
+        owner: address,
+        lastLevelUp: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      console.error('Error updating purchase:', err?.message || err);
+    }
+    
+    setIsBuyLoading(false);
+    setBuyingListing(null);
   };
 
   return (
-    <div className="min-h-screen bg-[var(--background)] flex flex-col">
+    <div className="min-h-screen bg-[var(--background)] flex flex-col animate-fade-slide-up">
       <Navbar />
 
       {/* ── Category tab strip ── */}
-      <div className="border-b-2 border-[oklch(0.86_0.01_270)] bg-white sticky top-0 z-40">
+      <div className="border-b-2 border-[oklch(0.86_0.01_270)] bg-white sticky top-0 z-40 backdrop-blur-sm/5">
         <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 flex items-center gap-1 overflow-x-auto">
           {CATEGORY_TABS.map(tab => {
             const Icon = tab.icon;
@@ -144,7 +131,7 @@ export default function MarketplacePage() {
               <button
                 key={tab.id}
                 onClick={() => setCategory(tab.id)}
-                className={`flex items-center gap-2 px-4 py-3.5 text-sm font-bold whitespace-nowrap border-b-2 transition-all duration-150 ${
+                className={`flex items-center gap-2 px-4 py-3.5 text-sm font-bold whitespace-nowrap border-b-2 transition-soft ${
                   active
                     ? 'border-[var(--indigo)] text-[var(--indigo)]'
                     : 'border-transparent text-[oklch(0.5_0.03_270)] hover:text-[oklch(0.2_0.03_270)] hover:border-[oklch(0.7_0.03_270)]'
@@ -158,21 +145,21 @@ export default function MarketplacePage() {
           <div className="ml-auto flex items-center gap-2 py-2 pl-4 border-l-2 border-[oklch(0.9_0.01_270)]">
             <button
               onClick={() => setViewMode('collections')}
-              className={`p-1.5 rounded transition-colors ${viewMode === 'collections' ? 'bg-[var(--indigo)] text-white' : 'text-[oklch(0.5_0.03_270)] hover:bg-[oklch(0.94_0.02_270)]'}`}
+              className={`p-1.5 rounded transition-soft ${viewMode === 'collections' ? 'bg-[var(--indigo)] text-white' : 'text-[oklch(0.5_0.03_270)] hover:bg-[oklch(0.94_0.02_270)]'}`}
               title="Collections view"
             >
               <BarChart2 className="w-4 h-4" />
             </button>
             <button
               onClick={() => setViewMode('listings')}
-              className={`p-1.5 rounded transition-colors ${viewMode === 'listings' ? 'bg-[var(--indigo)] text-white' : 'text-[oklch(0.5_0.03_270)] hover:bg-[oklch(0.94_0.02_270)]'}`}
+              className={`p-1.5 rounded transition-soft ${viewMode === 'listings' ? 'bg-[var(--indigo)] text-white' : 'text-[oklch(0.5_0.03_270)] hover:bg-[oklch(0.94_0.02_270)]'}`}
               title="Listings view"
             >
               <Grid3X3 className="w-4 h-4" />
             </button>
             <button
               onClick={() => setViewMode('my-listings')}
-              className={`p-1.5 rounded transition-colors ${viewMode === 'my-listings' ? 'bg-[var(--indigo)] text-white' : 'text-[oklch(0.5_0.03_270)] hover:bg-[oklch(0.94_0.02_270)]'}`}
+              className={`p-1.5 rounded transition-soft ${viewMode === 'my-listings' ? 'bg-[var(--indigo)] text-white' : 'text-[oklch(0.5_0.03_270)] hover:bg-[oklch(0.94_0.02_270)]'}`}
               title="My listings"
             >
               <List className="w-4 h-4" />
@@ -188,10 +175,10 @@ export default function MarketplacePage() {
           <div className="flex gap-6 items-start">
 
             {/* ── Left: Featured collection hero + listings ── */}
-            <div className="flex-1 min-w-0 flex flex-col gap-6">
+            <div className="flex-1 min-w-0 flex flex-col gap-8">
 
               {/* Featured hero banner */}
-              <div className="relative rounded-2xl overflow-hidden border-2 border-[oklch(0.86_0.01_270)]" style={{ height: 340 }}>
+              <div className="relative rounded-2xl overflow-hidden border-2 border-[oklch(0.86_0.01_270)] hover-lift transition-soft" style={{ height: 480 }}>
                 <Image
                   src={activeCol.banner}
                   alt={activeCol.name}
@@ -204,51 +191,51 @@ export default function MarketplacePage() {
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
 
                 {/* Collection meta overlay */}
-                <div className="absolute bottom-0 left-0 right-0 p-6">
-                  <div className="flex items-end justify-between gap-4">
-                    <div className="flex items-start gap-4">
-                      <div className="relative w-16 h-16 rounded-xl overflow-hidden border-2 border-white/30 flex-shrink-0">
-                        <Image src={activeCol.avatar} alt="" fill className="object-cover" sizes="64px" />
+                <div className="absolute bottom-0 left-0 right-0 p-12">
+                  <div className="flex items-end justify-between gap-6 animate-fade-slide-up">
+                    <div className="flex items-start gap-5">
+                      <div className="relative w-24 h-24 rounded-xl overflow-hidden border-2 border-white/30 flex-shrink-0">
+                        <Image src={activeCol.avatar} alt="" fill className="object-cover" sizes="96px" />
                       </div>
                       <div>
-                        <div className="flex items-center gap-2 mb-1">
-                          <h1 className="text-white font-black text-2xl leading-none">{activeCol.name}</h1>
+                        <div className="flex items-center gap-3 mb-3">
+                          <h1 className="text-white font-black text-5xl leading-none">{activeCol.name}</h1>
                           {activeCol.verified && (
-                            <CheckCircle className="w-5 h-5 text-blue-400 flex-shrink-0" />
+                            <CheckCircle className="w-7 h-7 text-blue-400 flex-shrink-0 mt-1" />
                           )}
                         </div>
-                        <p className="text-white/60 text-xs font-mono">by {formatAddress(activeCol.creator)}</p>
-                        <p className="text-white/80 text-sm mt-1.5 max-w-md line-clamp-1">{activeCol.description}</p>
+                        <p className="text-white/60 text-base font-mono mb-1">by {formatAddress(activeCol.creator)}</p>
+                        <p className="text-white/80 text-lg mt-1 max-w-2xl line-clamp-2">{activeCol.description}</p>
                       </div>
                     </div>
                     <button
-                      className="flex-shrink-0 btn-primary text-sm"
+                      className="flex-shrink-0 btn-primary text-lg px-8 py-4 font-black"
                       onClick={() => setViewMode('listings')}
                     >
-                      <ShoppingBag className="w-4 h-4" />
+                      <ShoppingBag className="w-6 h-6" />
                       Browse Items
                     </button>
                   </div>
 
                   {/* Stats row */}
-                  <div className="flex flex-wrap gap-6 mt-5">
+                  <div className="flex flex-wrap gap-10 mt-8">
                     {[
                       { label: 'FLOOR PRICE', value: `${activeCol.floorPrice} ETH` },
                       { label: 'ITEMS', value: activeCol.items.toLocaleString() },
                       { label: 'TOTAL VOLUME', value: `${activeCol.totalVolume.toFixed(1)} ETH` },
                       { label: 'LISTED', value: `${activeCol.listed}%` },
                     ].map(s => (
-                      <div key={s.label}>
-                        <p className="text-white/50 text-[10px] font-bold tracking-widest uppercase mb-0.5">{s.label}</p>
-                        <p className="text-white font-black text-lg leading-none">{s.value}</p>
+                      <div key={s.label} className="transition-soft hover:-translate-y-0.5">
+                        <p className="text-white/50 text-sm font-bold tracking-widest uppercase mb-2">{s.label}</p>
+                        <p className="text-white font-black text-3xl leading-none">{s.value}</p>
                       </div>
                     ))}
-                    <div>
-                      <p className="text-white/50 text-[10px] font-bold tracking-widest uppercase mb-0.5">24H CHANGE</p>
-                      <p className={`font-black text-lg leading-none flex items-center gap-1 ${activeCol.change24h >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    <div className="transition-soft hover:-translate-y-0.5">
+                      <p className="text-white/50 text-sm font-bold tracking-widest uppercase mb-2">24H CHANGE</p>
+                      <p className={`font-black text-3xl leading-none flex items-center gap-2 ${activeCol.change24h >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                         {activeCol.change24h >= 0
-                          ? <ArrowUpRight className="w-4 h-4" />
-                          : <ArrowDownRight className="w-4 h-4" />}
+                          ? <ArrowUpRight className="w-6 h-6" />
+                          : <ArrowDownRight className="w-6 h-6" />}
                         {Math.abs(activeCol.change24h)}%
                       </p>
                     </div>
@@ -257,7 +244,7 @@ export default function MarketplacePage() {
               </div>
 
               {/* Floor price chart */}
-              <div className="panel">
+              <div className="panel animate-subtle-pop">
                 <div className="flex items-center justify-between mb-4">
                   <div>
                     <h2 className="font-black text-base">Floor Price — {activeCol.name}</h2>
@@ -325,7 +312,7 @@ export default function MarketplacePage() {
                     <MiniListingCard
                       key={listing.id}
                       listing={listing}
-                      buying={buying === listing.id}
+                      buying={buyingListing?.id === listing.id}
                       onBuy={() => handleBuy(listing)}
                     />
                   ))}
@@ -336,7 +323,7 @@ export default function MarketplacePage() {
             {/* ── Right: Trending leaderboard ── */}
             <div className="w-80 flex-shrink-0 flex flex-col gap-4 sticky top-20">
               {/* Search + sort */}
-              <div className="panel p-3 flex flex-col gap-2">
+              <div className="panel p-3 flex flex-col gap-2 animate-subtle-pop">
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[oklch(0.6_0.03_270)]" />
                   <input
@@ -364,7 +351,7 @@ export default function MarketplacePage() {
               </div>
 
               {/* Leaderboard */}
-              <div className="panel p-0 overflow-hidden">
+              <div className="panel p-0 overflow-hidden animate-subtle-pop">
                 <div className="px-4 py-3 border-b-2 border-[oklch(0.9_0.01_270)] flex items-center justify-between">
                   <span className="font-black text-sm">Collections</span>
                   <div className="flex gap-4">
@@ -458,7 +445,7 @@ export default function MarketplacePage() {
           <ListingsView
             collection={activeCol}
             listings={activeListings}
-            buying={buying}
+            buying={buyingListing?.id ?? null}
             onBuy={handleBuy}
             onBack={() => setViewMode('collections')}
           />
@@ -476,6 +463,13 @@ export default function MarketplacePage() {
         <ListNFTModal onClose={() => setShowListModal(false)} userNFTs={newNFTs} />
       )}
 
+      <BuyingPanel
+        listing={buyingListing}
+        onClose={() => setBuyingListing(null)}
+        onComplete={handleCompletePurchase}
+        loading={isBuyLoading}
+      />
+
       <Footer />
     </div>
   );
@@ -489,7 +483,7 @@ function MiniListingCard({ listing, buying, onBuy }: {
   const { nft, price } = listing;
   const color = RARITY_COLOR[nft.rarity];
   return (
-    <article className="nft-grid-card group flex flex-col">
+    <article className="nft-grid-card group flex flex-col animate-subtle-pop">
       <div className="relative aspect-square overflow-hidden">
         <Image
           src={nft.image}
@@ -677,7 +671,7 @@ function FullListingCard({ listing, buying, onBuy }: {
   const color = RARITY_COLOR[nft.rarity];
   const stageNames = ['Rookie', 'Explorer', 'Warrior', 'Champion', 'Legend'];
   return (
-    <article className="nft-grid-card group flex flex-col">
+    <article className="nft-grid-card group flex flex-col animate-subtle-pop">
       <div className="relative aspect-square overflow-hidden">
         <Image
           src={nft.image}
@@ -892,6 +886,10 @@ function ListNFTModal({ onClose, userNFTs }: ListNFTModalProps) {
 
   const handleList = async () => {
     if (!selectedNFT || !price) return;
+    
+    // Generate a mock hash for the pending transaction
+    const mockHash = '0x' + Array(64).fill(0).map(() => Math.floor(Math.random() * 16).toString(16)).join('');
+    
     const txId = addTransaction({
       action: 'Listed',
       tokenId: selectedNFT.tokenId,
@@ -899,6 +897,7 @@ function ListNFTModal({ onClose, userNFTs }: ListNFTModalProps) {
       amount: `${price} ETH`,
       timestamp: new Date().toISOString(),
       status: 'pending',
+      hash: mockHash,
     });
 
     setListing(true);

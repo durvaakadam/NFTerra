@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useWallet } from '@/lib/context/WalletContext';
-import { useTxHistory } from '@/lib/context/TxHistoryContext';
+import { useTxHistory, TxRecord } from '@/lib/context/TxHistoryContext';
 import { Navbar } from '@/components/shared/Navbar';
 import { Footer } from '@/components/shared/Footer';
 import { formatTimeAgo } from '@/lib/marketplace-data';
@@ -10,9 +10,16 @@ import { formatAddress } from '@/lib/web3-utils';
 import {
   RefreshCw, Wallet, Download, Filter, Calendar, DollarSign, Hash,
   CheckCircle, Clock, XCircle, ArrowUpRight, ShoppingBag,
-  Zap, Hammer, Search, ChevronRight, TrendingUp,
+  Zap, Hammer, Search, ChevronRight, TrendingUp, Copy, Check,
 } from 'lucide-react';
 import Link from 'next/link';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogClose,
+} from '@/components/ui/dialog';
 
 // ── Tx action config ──────────────────────────────────────────────────────────
 
@@ -39,8 +46,17 @@ export default function TransactionsPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'success' | 'pending' | 'failed'>('all');
   const [filterAction, setFilterAction] = useState<string>('all');
+  const [selectedTx, setSelectedTx] = useState<TxRecord | null>(null);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
 
   const txHistory = transactions;
+
+  // Helper for copying to clipboard
+  const copyToClipboard = (text: string, field: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(null), 2000);
+  };
 
   // Filter transactions
   const filteredTxs = txHistory.filter(tx => {
@@ -137,20 +153,20 @@ export default function TransactionsPage() {
           <div className="flex flex-col gap-3">
             {/* Search */}
             <div className="relative">
-              <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-white/40" />
+              <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-[oklch(0.5_0.02_270)]/40" />
               <input
                 type="text"
                 placeholder="Search by Token ID, TX Hash, or Action..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-12 pr-4 py-3 rounded-xl border-2 border-[oklch(0.3_0.01_270)] bg-[oklch(0.95_0.005_270)] text-[oklch(0.15_0.02_270)] placeholder:text-white/40 focus:outline-none focus:border-[var(--indigo)] transition-colors"
+                className="w-full pl-12 pr-4 py-3 rounded-xl border-2 border-[oklch(0.3_0.01_270)] bg-[oklch(0.95_0.005_270)] text-[oklch(0.15_0.02_270)] placeholder:text-[oklch(0.5_0.02_270)] focus:outline-none focus:border-[var(--indigo)] transition-colors"
               />
             </div>
 
             {/* Filter buttons */}
             <div className="flex flex-col sm:flex-row gap-3">
               <div className="flex gap-2 flex-wrap items-center">
-                <span className="text-sm font-black text-white flex items-center gap-2">
+                <span className="text-sm font-black text-black flex items-center gap-2">
                   <Filter className="w-4 h-4 text-orange-400" /> Status:
                 </span>
                 {(['all', 'success', 'pending', 'failed'] as const).map(status => {
@@ -200,7 +216,8 @@ export default function TransactionsPage() {
               return (
                 <div
                   key={idx}
-                  className="group rounded-xl border-2 border-[oklch(0.88_0.01_270)] hover:border-[var(--indigo)] p-4 sm:p-6 transition-all bg-[oklch(0.975_0.005_270)] hover:bg-[oklch(0.97_0.01_270)]"
+                  onClick={() => setSelectedTx(tx)}
+                  className="group rounded-xl border-2 border-[oklch(0.88_0.01_270)] hover:border-[var(--indigo)] p-4 sm:p-6 transition-all bg-[oklch(0.975_0.005_270)] hover:bg-[oklch(0.97_0.01_270)] cursor-pointer"
                 >
                   <div className="flex items-center justify-between gap-4 flex-wrap sm:flex-nowrap">
                     {/* Left: Action + NFT Info */}
@@ -209,8 +226,8 @@ export default function TransactionsPage() {
                         {actionCfg.icon}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="font-black text-white text-base">{actionCfg.label}</p>
-                        <p className="text-xs text-white/70 font-mono truncate">
+                        <p className="font-black text-black text-base">{actionCfg.label}</p>
+                        <p className="text-xs text-black/70 font-mono truncate">
                           Token #{tx.tokenId}
                         </p>
                       </div>
@@ -272,6 +289,177 @@ export default function TransactionsPage() {
         </div>
 
       </main>
+
+      {/* ── Transaction Detail Modal ── */}
+      <Dialog open={!!selectedTx} onOpenChange={(open) => !open && setSelectedTx(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-[var(--background)] border-2 border-[oklch(0.88_0.01_270)] shadow-2xl">
+          <DialogHeader className="border-b border-[oklch(0.88_0.01_270)] pb-4">
+            <DialogTitle className="text-2xl font-black text-black">Transaction Details</DialogTitle>
+            <DialogClose />
+          </DialogHeader>
+
+          {selectedTx && (
+            <div className="space-y-6 py-4">
+              {/* Action & Status */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm font-black uppercase tracking-widest text-[var(--indigo)] mb-2">Action</p>
+                  <p className="text-lg font-black text-black capitalize">{selectedTx.action}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-black uppercase tracking-widest text-[var(--teal)] mb-2">Status</p>
+                  <div className="flex items-center gap-2">
+                    {selectedTx.status === 'success' && (
+                      <>
+                        <CheckCircle className="w-5 h-5 text-emerald-600" />
+                        <span className="font-black text-emerald-600 capitalize">{selectedTx.status}</span>
+                      </>
+                    )}
+                    {selectedTx.status === 'pending' && (
+                      <>
+                        <Clock className="w-5 h-5 text-[var(--amber)]" />
+                        <span className="font-black text-[var(--amber)] capitalize">{selectedTx.status}</span>
+                      </>
+                    )}
+                    {selectedTx.status === 'failed' && (
+                      <>
+                        <XCircle className="w-5 h-5 text-[var(--rose)]" />
+                        <span className="font-black text-[var(--rose)] capitalize">{selectedTx.status}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* NFT Info */}
+              <div className="space-y-3 p-4 rounded-lg bg-[oklch(0.95_0.005_270)] border border-[oklch(0.88_0.01_270)]">
+                <p className="text-xs font-black uppercase tracking-widest text-[var(--indigo)]">NFT</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs text-[oklch(0.6_0.03_270)] mb-1">Token ID</p>
+                    <p className="font-mono text-black font-black">#{selectedTx.tokenId}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-[oklch(0.6_0.03_270)] mb-1">Token Name</p>
+                    <p className="font-black text-black">{selectedTx.tokenName || '—'}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Amount */}
+              {selectedTx.amount && (
+                <div className="space-y-3 p-4 rounded-lg bg-[oklch(0.95_0.005_270)] border border-[oklch(0.88_0.01_270)]">
+                  <p className="text-xs font-black uppercase tracking-widest text-[var(--amber)]">Amount</p>
+                  <p className="text-2xl font-black text-[var(--amber)]">{selectedTx.amount} ETH</p>
+                </div>
+              )}
+
+              {/* Timestamp */}
+              <div className="space-y-3 p-4 rounded-lg bg-[oklch(0.95_0.005_270)] border border-[oklch(0.88_0.01_270)]">
+                <p className="text-xs font-black uppercase tracking-widest text-[var(--teal)]">Date & Time</p>
+                <div className="space-y-1">
+                  <p className="font-black text-black">{new Date(selectedTx.timestamp).toLocaleString()}</p>
+                  <p className="text-sm text-[oklch(0.6_0.03_270)]">{formatTimeAgo(selectedTx.timestamp)}</p>
+                </div>
+              </div>
+
+              {/* Transaction Hash */}
+              {selectedTx.hash && (
+                <div className="space-y-3 p-4 rounded-lg bg-[oklch(0.95_0.005_270)] border border-[oklch(0.88_0.01_270)]">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-black uppercase tracking-widest text-[var(--rose)]">TX Hash</p>
+                    <button
+                      onClick={() => copyToClipboard(selectedTx.hash || '', 'hash')}
+                      className="flex items-center gap-1 text-xs font-black text-[var(--indigo)] hover:text-[var(--teal)] transition-colors"
+                    >
+                      {copiedField === 'hash' ? (
+                        <>
+                          <Check className="w-3 h-3" /> Copied
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3 h-3" /> Copy
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  <p className="font-mono text-black text-sm break-all">{selectedTx.hash}</p>
+                </div>
+              )}
+
+              {/* Transaction ID */}
+              <div className="space-y-3 p-4 rounded-lg bg-[oklch(0.95_0.005_270)] border border-[oklch(0.88_0.01_270)]">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-black uppercase tracking-widest text-[var(--indigo)]">TX ID</p>
+                  <button
+                    onClick={() => copyToClipboard(selectedTx.id, 'id')}
+                    className="flex items-center gap-1 text-xs font-black text-[var(--indigo)] hover:text-[var(--teal)] transition-colors"
+                  >
+                    {copiedField === 'id' ? (
+                      <>
+                        <Check className="w-3 h-3" /> Copied
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3 h-3" /> Copy
+                      </>
+                    )}
+                  </button>
+                </div>
+                <p className="font-mono text-black text-sm break-all">{selectedTx.id}</p>
+              </div>
+
+              {/* Seller Info */}
+              {selectedTx.seller && (
+                <div className="space-y-3 p-4 rounded-lg bg-[oklch(0.95_0.005_270)] border border-[oklch(0.88_0.01_270)]">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-black uppercase tracking-widest text-[var(--rose)]">Seller</p>
+                    <button
+                      onClick={() => copyToClipboard(selectedTx.seller || '', 'seller')}
+                      className="flex items-center gap-1 text-xs font-black text-[var(--indigo)] hover:text-[var(--teal)] transition-colors"
+                    >
+                      {copiedField === 'seller' ? (
+                        <>
+                          <Check className="w-3 h-3" /> Copied
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3 h-3" /> Copy
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  <p className="font-mono text-black text-sm">{selectedTx.seller}</p>
+                </div>
+              )}
+
+              {/* Buyer Info */}
+              {selectedTx.buyer && (
+                <div className="space-y-3 p-4 rounded-lg bg-[oklch(0.95_0.005_270)] border border-[oklch(0.88_0.01_270)]">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-black uppercase tracking-widest text-[var(--teal)]">Buyer</p>
+                    <button
+                      onClick={() => copyToClipboard(selectedTx.buyer || '', 'buyer')}
+                      className="flex items-center gap-1 text-xs font-black text-[var(--indigo)] hover:text-[var(--teal)] transition-colors"
+                    >
+                      {copiedField === 'buyer' ? (
+                        <>
+                          <Check className="w-3 h-3" /> Copied
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3 h-3" /> Copy
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  <p className="font-mono text-black text-sm">{selectedTx.buyer}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Footer />
     </div>

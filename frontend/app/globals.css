@@ -259,6 +259,170 @@
   transform: translateY(-2px);
 }
 
+/* ── Micro-interaction animations used across NFTerra ── */
+
+@keyframes fade-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes subtle-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-fade-slide-up {
+  animation: fade-slide-up 260ms ease-out both;
+}
+
+.animate-subtle-pop {
+  animation: subtle-pop 220ms ease-out both;
+}
+
+.transition-soft {
+  transition-property: background-color, border-color, color, box-shadow, transform;
+  transition-duration: 180ms;
+  transition-timing-function: ease-out;
+}
+
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 30px oklch(0.38 0.18 270 / 0.22);
+}
+
+@keyframes levelup-aura-pulse {
+  0%, 100% {
+    opacity: 0.18;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(1.03);
+  }
+}
+
+@keyframes levelup-energy-sweep {
+  0% {
+    transform: translateX(-120%) skewX(-18deg);
+    opacity: 0;
+  }
+  25% {
+    opacity: 0.28;
+  }
+  70% {
+    opacity: 0.42;
+  }
+  100% {
+    transform: translateX(140%) skewX(-18deg);
+    opacity: 0;
+  }
+}
+
+@keyframes levelup-particle-rise {
+  0% {
+    transform: translateY(0) scale(0.8);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.8;
+  }
+  100% {
+    transform: translateY(-46px) scale(1.1);
+    opacity: 0;
+  }
+}
+
+@keyframes levelup-progress-flow {
+  0% {
+    transform: translateX(-90%);
+  }
+  100% {
+    transform: translateX(120%);
+  }
+}
+
+@keyframes levelup-reveal-flash {
+  0% {
+    filter: brightness(1) saturate(1);
+    transform: scale(1);
+  }
+  35% {
+    filter: brightness(1.65) saturate(1.3);
+    transform: scale(1.05);
+  }
+  100% {
+    filter: brightness(1) saturate(1);
+    transform: scale(1);
+  }
+}
+
+@keyframes levelup-burst-ring {
+  0% {
+    box-shadow: inset 0 0 0 0 oklch(0.9 0.08 260 / 0.6);
+  }
+  100% {
+    box-shadow: inset 0 0 0 120px oklch(0.9 0.08 260 / 0);
+  }
+}
+
+.levelup-aura {
+  background: radial-gradient(circle at 50% 58%, var(--aura-color, #7c3aed) 0%, transparent 60%);
+  mix-blend-mode: screen;
+  animation: levelup-aura-pulse 1.2s ease-in-out infinite;
+}
+
+.levelup-energy-sweep {
+  background: linear-gradient(110deg, transparent 30%, oklch(1 0 0 / 0.45), transparent 70%);
+  animation: levelup-energy-sweep 1.4s linear infinite;
+}
+
+.levelup-particle {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: oklch(1 0 0 / 0.9);
+  box-shadow: 0 0 8px oklch(0.95 0.04 95 / 0.8);
+  animation: levelup-particle-rise 1s ease-out infinite;
+}
+
+.levelup-progress {
+  width: 34%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, oklch(0.72 0.18 55), oklch(0.38 0.18 270));
+  position: relative;
+  overflow: hidden;
+  transition: width 300ms ease;
+}
+
+.levelup-progress::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 20%, oklch(1 0 0 / 0.45), transparent 80%);
+  animation: levelup-progress-flow 1s linear infinite;
+}
+
+.levelup-reveal {
+  animation: levelup-reveal-flash 520ms ease-out;
+}
+
+.levelup-burst {
+  animation: levelup-burst-ring 560ms ease-out;
+}
+
 .level-bar-track {
   background-color: oklch(0.92 0.02 270);
   border-radius: 999px;

@@ -26,16 +26,28 @@ interface NFTCardProps {
   onLevelUp?: (tokenId: number) => void;
   onList?: (nft: NFT) => void;
   loading?: boolean;
+  levelUpStage?: 'idle' | 'initiating' | 'tx-progress' | 'evolution-progress' | 'revealing' | 'complete' | 'error';
   isNew?: boolean;
 }
 
-export function NFTCard({ nft, onLevelUp, onList, loading, isNew }: NFTCardProps) {
+export function NFTCard({ nft, onLevelUp, onList, loading, levelUpStage = 'idle', isNew }: NFTCardProps) {
   const [liked, setLiked] = useState(false);
   const likeBase = (nft.tokenId % 47) + 8;
   const stage = STAGE_NAMES[nft.level - 1];
   const imgSrc = nft.image || STAGE_IMAGES[nft.level - 1];
   const rc = RARITY_CONF[nft.rarity];
   const floorPrice = (0.05 * nft.level * (nft.rarity === 'legendary' ? 5 : nft.rarity === 'rare' ? 2.5 : 1)).toFixed(2);
+  const isEvolving = levelUpStage !== 'idle';
+
+  const stageLabel: Record<string, string> = {
+    initiating: 'Initiating Upgrade',
+    'tx-progress': 'Transaction in Progress',
+    'evolution-progress': 'Evolution in Progress',
+    revealing: 'Transforming New Form',
+    complete: 'Evolution Complete',
+    error: 'Upgrade Failed',
+    idle: '',
+  };
 
   return (
     <article
@@ -48,9 +60,51 @@ export function NFTCard({ nft, onLevelUp, onList, loading, isNew }: NFTCardProps
           src={imgSrc}
           alt={`${nft.name} — ${stage}`}
           fill
-          className="object-cover transition-transform duration-500 group-hover:scale-105"
+          className={`object-cover transition-transform duration-500 group-hover:scale-105 ${levelUpStage === 'revealing' ? 'levelup-reveal' : ''}`}
           sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
         />
+
+        {isEvolving && (
+          <div className="absolute inset-0 pointer-events-none">
+            <div
+              className={`absolute inset-0 levelup-aura ${levelUpStage === 'revealing' ? 'levelup-burst' : ''}`}
+              style={{ ['--aura-color' as any]: rc.accent }}
+            />
+            <div className="absolute inset-0 levelup-energy-sweep" />
+
+            <div className="absolute inset-0">
+              {Array.from({ length: 14 }).map((_, i) => (
+                <span
+                  key={i}
+                  className="levelup-particle"
+                  style={{
+                    left: `${8 + ((i * 13) % 84)}%`,
+                    bottom: `${4 + (i % 6) * 5}%`,
+                    animationDelay: `${(i % 7) * 80}ms`,
+                  }}
+                />
+              ))}
+            </div>
+
+            <div className="absolute left-2.5 right-2.5 bottom-11 rounded-lg border border-white/35 bg-black/55 backdrop-blur px-2.5 py-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] font-black uppercase tracking-wider text-white/90 truncate">
+                  {stageLabel[levelUpStage]}
+                </p>
+                {levelUpStage === 'error' ? (
+                  <span className="text-[10px] font-black text-rose-300">Retry</span>
+                ) : levelUpStage === 'complete' ? (
+                  <span className="text-[10px] font-black text-emerald-300">+1 Level</span>
+                ) : (
+                  <Loader2 className="w-3 h-3 text-white animate-spin" />
+                )}
+              </div>
+              <div className="mt-1 h-1 rounded-full bg-white/20 overflow-hidden">
+                <div className={`h-full levelup-progress ${levelUpStage === 'complete' ? 'w-full' : ''}`} />
+              </div>
+            </div>
+          </div>
+        )}
         {/* Stage badge */}
         <div className="absolute top-2.5 left-2.5">
           <span className={`tag ${rc.tag}`}>{stage}</span>
@@ -134,8 +188,8 @@ export function NFTCard({ nft, onLevelUp, onList, loading, isNew }: NFTCardProps
             className={`btn-primary w-full py-2 text-xs gap-1.5 col-span-2 ${nft.level >= 5 ? 'opacity-40 cursor-not-allowed' : ''}`}
             style={nft.level < 5 ? { backgroundColor: rc.accent, borderColor: rc.accent } : {}}
           >
-            {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
-            {nft.level >= 5 ? 'Max Level' : 'Level Up'}
+              {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+              {nft.level >= 5 ? 'Max Level' : isEvolving ? stageLabel[levelUpStage] : 'Level Up'}
           </button>
         </div>
       </div>

@@ -107,9 +107,15 @@ export default function MintPage() {
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const url = URL.createObjectURL(file);
-    setArtworkPreview(url);
-    setSelectedStyle('');
+    
+    // Convert to base64 data URL instead of blob URL (persists across page navigation)
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64Url = event.target?.result as string;
+      setArtworkPreview(base64Url);
+      setSelectedStyle('');
+    };
+    reader.readAsDataURL(file);
   }, []);
 
   const addTrait = () => setTraits(t => [...t, { type: TRAIT_TYPES[t.length % TRAIT_TYPES.length], value: '' }]);
@@ -123,6 +129,9 @@ export default function MintPage() {
     await new Promise(r => setTimeout(r, 1500));
     setTxStatus('pending');
     
+    // Generate a mock hash for the pending transaction
+    const mockHash = '0x' + Array(64).fill(0).map(() => Math.floor(Math.random() * 16).toString(16)).join('');
+    
     // Create pending transaction record with placeholder tokenId
     const txId = addTransaction({
       action: 'Minted',
@@ -130,6 +139,7 @@ export default function MintPage() {
       tokenName: nftName,
       timestamp: new Date().toISOString(),
       status: 'pending',
+      hash: mockHash,
     });
     
     try {
