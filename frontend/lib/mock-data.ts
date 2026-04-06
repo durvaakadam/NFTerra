@@ -1,5 +1,16 @@
 import { getRarity } from './web3-utils';
 
+// ── Seeded random number generator for deterministic mock data ──
+function seededRandom(seed: string): number {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    const char = seed.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  return Math.abs(hash % 1000) / 1000;
+}
+
 export interface NFTAttribute {
   trait_type: string;
   value: string | number;
@@ -75,7 +86,11 @@ export const EVOLUTION_STAGES: EvolutionStage[] = [
 // Mock NFT data generator
 export function generateMockNFT(tokenId: number, owner: string): NFT {
   const rarity = getRarity(tokenId);
-  const level = Math.min(1 + Math.floor(Math.random() * 5), 5);
+  
+  // Use seeded random based on tokenId + owner for deterministic generation
+  const seed = `${tokenId}-${owner}`;
+  const levelRand = seededRandom(seed);
+  const level = Math.min(1 + Math.floor(levelRand * 5), 5);
   
   const stages = ['Rookie', 'Explorer', 'Warrior', 'Champion', 'Legend'];
   const stageImages = ['/nft-1.jpg', '/nft-3.jpg', '/nft-5.jpg', '/nft-7.jpg', '/nft-2.jpg'];
@@ -83,11 +98,21 @@ export function generateMockNFT(tokenId: number, owner: string): NFT {
   const stage = stages[level - 1];
   // Rotate through variety images for same-level NFTs
   const imgVariant = tokenId % 2 === 0 && level <= 3 ? extraImages[(tokenId % 3)] : stageImages[level - 1];
+  
+  // Use seeded random for experience
+  const expSeed = `${tokenId}-${owner}-exp`;
+  const experience = Math.floor(seededRandom(expSeed) * 1000);
+  
+  // Use seeded random for lastLevelUp date
+  const dateSeed = `${tokenId}-${owner}-date`;
+  const daysAgo = Math.floor(seededRandom(dateSeed) * 30);
+  const lastLevelUp = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString();
+  
   const attributes = [
     { trait_type: 'Stage', value: stage },
     { trait_type: 'Level', value: level },
     { trait_type: 'Rarity', value: rarity },
-    { trait_type: 'Experience', value: Math.floor(Math.random() * 1000) },
+    { trait_type: 'Experience', value: experience },
   ];
 
   return {
@@ -97,7 +122,7 @@ export function generateMockNFT(tokenId: number, owner: string): NFT {
     image: imgVariant,
     rarity,
     owner,
-    lastLevelUp: new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000).toISOString(),
+    lastLevelUp,
     attributes,
     metadata: {
       description: `A ${rarity} ${stage} NFT in the NFTerra ecosystem. Level ${level}/5.`,

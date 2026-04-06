@@ -32,4 +32,7 @@ contract DynamicNFT is ERC721URIStorage {
 
         levels[tokenId] += 1;
     }
+
+    // Allow contract to receive ETH (for marketplace transactions)
+    receive() external payable {}
 }

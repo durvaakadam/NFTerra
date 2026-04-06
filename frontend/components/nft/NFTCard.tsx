@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { NFT } from '@/lib/mock-data';
-import { Zap, Eye, Loader2, Heart, TrendingUp } from 'lucide-react';
+import { Zap, Eye, Loader2, Heart, TrendingUp, Tag } from 'lucide-react';
 
 const STAGE_IMAGES = [
   '/nft-1.jpg',
@@ -24,10 +24,12 @@ const RARITY_CONF: Record<string, { tag: string; accent: string }> = {
 interface NFTCardProps {
   nft: NFT;
   onLevelUp?: (tokenId: number) => void;
+  onList?: (nft: NFT) => void;
   loading?: boolean;
+  isNew?: boolean;
 }
 
-export function NFTCard({ nft, onLevelUp, loading }: NFTCardProps) {
+export function NFTCard({ nft, onLevelUp, onList, loading, isNew }: NFTCardProps) {
   const [liked, setLiked] = useState(false);
   const likeBase = (nft.tokenId % 47) + 8;
   const stage = STAGE_NAMES[nft.level - 1];
@@ -53,6 +55,12 @@ export function NFTCard({ nft, onLevelUp, loading }: NFTCardProps) {
         <div className="absolute top-2.5 left-2.5">
           <span className={`tag ${rc.tag}`}>{stage}</span>
         </div>
+        {/* NEW indicator */}
+        {isNew && (
+          <div className="absolute top-2.5 left-20">
+            <span className="tag bg-emerald-500 text-white border-emerald-500">🆕 NEW</span>
+          </div>
+        )}
         {/* Rarity badge */}
         <div className="absolute top-2.5 right-2.5">
           <span className={`tag ${rc.tag} capitalize`}>{nft.rarity}</span>
@@ -111,13 +119,19 @@ export function NFTCard({ nft, onLevelUp, loading }: NFTCardProps) {
         <div className="grid grid-cols-2 gap-2 mt-auto">
           <Link href={`/nft/${nft.tokenId}`} className="contents">
             <button className="btn-outline w-full py-2 text-xs gap-1.5">
-              <Eye className="w-3.5 h-3.5" /> Details
+              <Eye className="w-3.5 h-3.5" /> View
             </button>
           </Link>
           <button
+            onClick={() => onList?.(nft)}
+            className="btn-outline w-full py-2 text-xs gap-1.5"
+          >
+            <Tag className="w-3.5 h-3.5" /> List
+          </button>
+          <button
             onClick={() => onLevelUp?.(nft.tokenId)}
             disabled={loading || nft.level >= 5}
-            className={`btn-primary w-full py-2 text-xs gap-1.5 ${nft.level >= 5 ? 'opacity-40 cursor-not-allowed' : ''}`}
+            className={`btn-primary w-full py-2 text-xs gap-1.5 col-span-2 ${nft.level >= 5 ? 'opacity-40 cursor-not-allowed' : ''}`}
             style={nft.level < 5 ? { backgroundColor: rc.accent, borderColor: rc.accent } : {}}
           >
             {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}

@@ -8,12 +8,15 @@ import { Empty, EmptyHeader, EmptyTitle, EmptyDescription, EmptyContent } from '
 
 interface NFTGridProps {
   nfts: NFT[];
+  newNFTIds?: number[];
   onLevelUp?: (tokenId: number) => void;
+  onList?: (nft: NFT) => void;
+  levelingTokenId?: number | null;
   loading?: boolean;
   emptyMessage?: string;
 }
 
-export function NFTGrid({ nfts, onLevelUp, loading, emptyMessage }: NFTGridProps) {
+export function NFTGrid({ nfts, newNFTIds, onLevelUp, onList, levelingTokenId, loading, emptyMessage }: NFTGridProps) {
   if (nfts.length === 0) {
     return (
       <Empty>
@@ -37,7 +40,14 @@ export function NFTGrid({ nfts, onLevelUp, loading, emptyMessage }: NFTGridProps
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
       {nfts.map((nft) => (
-        <NFTCard key={nft.tokenId} nft={nft} onLevelUp={onLevelUp} loading={loading} />
+        <NFTCard 
+          key={nft.tokenId} 
+          nft={nft} 
+          onLevelUp={onLevelUp}
+          onList={onList}
+          loading={levelingTokenId === nft.tokenId ? true : loading}
+          isNew={newNFTIds?.includes(nft.tokenId)}
+        />
       ))}
     </div>
   );

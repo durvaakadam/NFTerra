@@ -2,13 +2,15 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useWallet } from '@/lib/context/WalletContext';
+import { useTxHistory } from '@/lib/context/TxHistoryContext';
+import { useNFTStore } from '@/lib/context/NFTStoreContext';
 import { useContract } from '@/hooks/use-contract';
 import { Navbar } from '@/components/shared/Navbar';
 import { Footer } from '@/components/shared/Footer';
-import { EVOLUTION_STAGES } from '@/lib/mock-data';
 import { formatAddress, getRarity } from '@/lib/web3-utils';
-import { getNFTLevel, getNFTOwner, getEvolutionStage, CONTRACT_ADDRESS } from '@/lib/contract';
-import { Zap, Share2, ExternalLink, Loader2, ChevronLeft, CheckCircle2, AlertCircle } from 'lucide-react';
+import { getNFTLevel, getNFTOwner, getEvolutionStage, CONTRACT_ADDRESS, getTotalMinted } from '@/lib/contract';
+import { EVOLUTION_STAGES } from '@/lib/mock-data';
+import { Zap, Share2, ExternalLink, Loader2, ChevronLeft, CheckCircle2, AlertCircle, Copy } from 'lucide-react';
 import Link from 'next/link';
 
 const STAGE_EMOJIS = ['🥚', '👹', '🐉', '🔥', '✨'];
@@ -25,17 +27,22 @@ interface NFTState {
   level: number;
   owner: string;
   rarity: 'common' | 'rare' | 'legendary';
+  exists: boolean;
+  totalMinted?: number;
 }
 
 export default function NFTDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { address, connected } = useWallet();
   const { levelUp, levelingUp, levelUpError } = useContract();
+  const { transactions } = useTxHistory();
+  const { newNFTs } = useNFTStore();
   
   const [paramsValue, setParamsValue] = React.useState<{ id: string } | null>(null);
   const [nft, setNft] = useState<NFTState | null>(null);
   const [loading, setLoading] = useState(true);
   const [leveled, setLeveled] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   React.useEffect(() => { params.then(setParamsValue); }, [params]);
 
@@ -45,26 +52,30 @@ export default function NFTDetailPage({ params }: { params: Promise<{ id: string
     setError(null);
     
     try {
-      const [level, owner] = await Promise.all([
+      const [level, owner, totalMinted] = await Promise.all([
         getNFTLevel(tokenId),
         getNFTOwner(tokenId),
+        getTotalMinted(),
       ]);
       
-      if (!owner) {
-        setError('NFT not found');
-        setNft(null);
-      } else {
-        setNft({
-          tokenId,
-          name: `NFTerra #${tokenId}`,
-          level,
-          owner,
-          rarity: getRarity(tokenId),
-        });
+      const nftExists = owner !== null;
+      
+      setNft({
+        tokenId,
+        name: `NFTerra #${tokenId}`,
+        level: level || 1,
+        owner: owner || '0x0000000000000000000000000000000000000000',
+        rarity: getRarity(tokenId),
+        exists: nftExists,
+        totalMinted,
+      });
+      
+      if (!nftExists && tokenId >= totalMinted) {
+        setError(`NFT #${tokenId} has not been minted yet. Total minted: ${totalMinted}`);
       }
     } catch (err) {
       console.error('Error loading NFT:', err);
-      setError('Failed to load NFT data');
+      setError('Failed to load NFT data. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -89,6 +100,12 @@ export default function NFTDetailPage({ params }: { params: Promise<{ id: string
       setNft(prev => prev ? { ...prev, level: result.newLevel } : null);
       setTimeout(() => setLeveled(false), 4000);
     }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   const isOwner = connected && address && nft?.owner?.toLowerCase() === address.toLowerCase();
@@ -120,22 +137,32 @@ export default function NFTDetailPage({ params }: { params: Promise<{ id: string
     );
   }
 
+  // Prefer full metadata (name, image, rarity) from local NFT store when available
+  const storeNFT = newNFTs.find(n => n.tokenId === nft.tokenId);
+  const displayName = storeNFT?.name || nft.name;
+  const displayRarity = (storeNFT?.rarity || nft.rarity) as 'common' | 'rare' | 'legendary';
+  const stageIndex = Math.max(0, Math.min(nft.level - 1, EVOLUTION_STAGES.length - 1));
+  const fallbackImage = EVOLUTION_STAGES[stageIndex]?.image || '/nft-1.jpg';
+  const displayImage = storeNFT?.image || fallbackImage;
+
   const ATTRS = [
-    { k: 'Token ID',   v: `#${nft.tokenId}` },
-    { k: 'Owner',      v: formatAddress(nft.owner) },
-    { k: 'Standard',   v: 'ERC-721' },
-    { k: 'Blockchain', v: 'Ethereum' },
-    { k: 'Level',      v: `${nft.level} / 5` },
-    { k: 'Stage',      v: getEvolutionStage(nft.level).name },
-    { k: 'Rarity',     v: nft.rarity.charAt(0).toUpperCase() + nft.rarity.slice(1) },
-    { k: 'Contract',   v: formatAddress(CONTRACT_ADDRESS) },
+    { k: 'Token ID',      v: `#${nft.tokenId}` },
+    { k: 'Owner',         v: formatAddress(nft.owner) },
+    { k: 'Current Level', v: `${nft.level} / 5` },
+    { k: 'Stage',         v: getEvolutionStage(nft.level).name },
+    { k: 'Rarity',        v: displayRarity.charAt(0).toUpperCase() + displayRarity.slice(1) },
+    { k: 'Standard',      v: 'ERC-721' },
+    { k: 'Network',       v: 'Ethereum' },
+    { k: 'Contract',      v: formatAddress(CONTRACT_ADDRESS) },
+    { k: 'Evolution',     v: `${Math.round((nft.level / 5) * 100)}%` },
+    { k: 'Mint Price',    v: '0.05 ETH' },
+    { k: 'Level Up Cost', v: '0.02 ETH' },
   ];
 
-  const attributes = [
-    { trait_type: 'Level', value: nft.level },
-    { trait_type: 'Stage', value: getEvolutionStage(nft.level).name },
-    { trait_type: 'Rarity', value: nft.rarity },
-  ];
+  const evolution = getEvolutionStage(nft.level);
+  const relatedTxs = transactions.filter(tx => 
+    String(tx.tokenId) === String(nft.tokenId) || tx.tokenName?.includes(`#${nft.tokenId}`)
+  );
 
   return (
     <div className="min-h-screen bg-[var(--background)] flex flex-col">
@@ -159,19 +186,18 @@ export default function NFTDetailPage({ params }: { params: Promise<{ id: string
               className="panel overflow-hidden p-0"
               style={{ boxShadow: '6px 6px 0 var(--indigo)' }}
             >
-              <div className={`${RARITY_BG[nft.rarity]} border-b-2 border-[oklch(0.86_0.01_270)] aspect-square flex flex-col items-center justify-center gap-4`}>
-                <span className="text-9xl animate-float">{STAGE_EMOJIS[nft.level - 1]}</span>
-                <span className={`tag ${RARITY_TAG[nft.rarity]}`}>
-                  {['Egg','Creature','Dragon','Phoenix','Immortal'][nft.level - 1]}
-                </span>
-              </div>
+              <img
+                src={displayImage}
+                alt={displayName}
+                className="w-full aspect-square object-cover"
+              />
               <div className="p-4 flex items-center justify-between">
                 <div>
-                  <p className="font-black">{nft.name}</p>
+                  <p className="font-black">{displayName}</p>
                   <p className="text-xs font-mono text-[oklch(0.6_0.03_270)]">#{nft.tokenId}</p>
                 </div>
-                <span className={`tag ${RARITY_TAG[nft.rarity]}`}>
-                  {nft.rarity.charAt(0).toUpperCase() + nft.rarity.slice(1)}
+                <span className={`tag ${RARITY_TAG[displayRarity]}`}>
+                  {displayRarity.charAt(0).toUpperCase() + displayRarity.slice(1)}
                 </span>
               </div>
             </div>
@@ -197,115 +223,164 @@ export default function NFTDetailPage({ params }: { params: Promise<{ id: string
               <button
                 onClick={handleLevelUp}
                 disabled={levelingUp || nft.level >= 5 || !isOwner}
-                className={`btn-primary w-full py-3 ${(nft.level >= 5 || !isOwner) ? 'opacity-40 cursor-not-allowed hover:transform-none' : ''}`}
+                className={`btn-primary w-full py-3 flex items-center justify-center gap-2 ${(nft.level >= 5 || !isOwner) ? 'opacity-40 cursor-not-allowed' : ''}`}
               >
-                {levelingUp ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-                {levelingUp ? 'Processing...' : nft.level >= 5 ? 'Max Level Reached' : !isOwner ? 'Not Owner' : `Level Up — 0.02 ETH`}
+                <Zap className="w-4 h-4" />
+                {nft.level >= 5 ? 'Max Level Reached' : `Level Up (0.02 ETH)`}
               </button>
 
-              <div className="grid grid-cols-2 gap-2">
-                <button className="btn-outline py-2 text-xs gap-1.5">
-                  <Share2 className="w-3.5 h-3.5" /> Share
+              {nft.level >= 5 && (
+                <p className="text-xs text-[oklch(0.5_0.03_270)] text-center">This NFT has reached maximum evolution!</p>
+              )}
+
+              {!isOwner && nft.exists && (
+                <p className="text-xs text-[oklch(0.5_0.03_270)] text-center">You don't own this NFT</p>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  onClick={() => copyToClipboard(nft.tokenId.toString())}
+                  className="btn-secondary flex-1 flex items-center justify-center gap-1 text-sm py-2"
+                >
+                  <Copy className="w-3 h-3" />
+                  {copied ? 'Copied!' : 'Copy ID'}
                 </button>
-                <a 
+                <a
                   href={`https://etherscan.io/token/${CONTRACT_ADDRESS}?a=${nft.tokenId}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="btn-outline py-2 text-xs gap-1.5 flex items-center justify-center"
+                  className="btn-secondary flex-1 flex items-center justify-center gap-1 text-sm py-2"
                 >
-                  <ExternalLink className="w-3.5 h-3.5" /> Etherscan
+                  <ExternalLink className="w-3 h-3" />
+                  Explorer
                 </a>
               </div>
             </div>
           </div>
 
-          {/* RIGHT — Metadata + Timeline (3 cols) */}
-          <div className="lg:col-span-3 flex flex-col gap-6">
+          {/* RIGHT — Comprehensive Details (3 cols) */}
+          <div className="lg:col-span-3 flex flex-col gap-4">
 
-            {/* Title */}
-            <div>
-              <p className="section-eyebrow mb-2">NFT Details</p>
-              <h1 className="font-black text-4xl tracking-tight">{nft.name}</h1>
-            </div>
-
-            {/* Level bar */}
-            <div className="panel">
-              <div className="flex items-center justify-between mb-3">
-                <span className="stat-label">Evolution Progress</span>
-                <span className="font-black text-[var(--indigo)]">Level {nft.level} / 5</span>
-              </div>
-              <div className="level-bar-track">
-                <div className="level-bar-fill" style={{ width: `${(nft.level / 5) * 100}%` }} />
-              </div>
-              <div className="flex justify-between mt-2 text-xs text-[oklch(0.6_0.03_270)]">
-                {['Egg','Creature','Dragon','Phoenix','Immortal'].map((s, i) => (
-                  <span key={s} className={i === nft.level - 1 ? 'font-black text-[var(--indigo)]' : ''}>{s}</span>
-                ))}
-              </div>
-            </div>
-
-            {/* Metadata grid */}
-            <div className="panel">
-              <h3 className="font-black text-sm mb-4">Metadata</h3>
-              <div className="grid grid-cols-2 gap-3">
-                {ATTRS.map(({ k, v }) => (
-                  <div key={k} className="panel-flat">
-                    <p className="stat-label mb-1">{k}</p>
-                    <p className="font-bold text-sm font-mono truncate">{v}</p>
+            {/* Evolution Info */}
+            <div className="panel space-y-4">
+              <div>
+                <h3 className="font-black text-lg mb-2">Evolution Status</h3>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold">Level {nft.level}</span>
+                    <span className="text-sm font-semibold text-[var(--indigo)]">{Math.round((nft.level / 5) * 100)}%</span>
                   </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Attributes */}
-            <div className="panel">
-              <h3 className="font-black text-sm mb-4">Traits</h3>
-              <div className="flex flex-wrap gap-2">
-                {attributes.map((attr) => (
-                  <div key={attr.trait_type} className="panel-flat px-3 py-2">
-                    <p className="stat-label" style={{ fontSize: '0.6rem' }}>{attr.trait_type}</p>
-                    <p className="font-black text-xs">{attr.value}</p>
+                  <div className="w-full bg-[oklch(0.88_0.02_270)] rounded-full h-2">
+                    <div 
+                      className="bg-gradient-to-r from-[var(--indigo)] to-[var(--teal)] h-2 rounded-full transition-all"
+                      style={{ width: `${(nft.level / 5) * 100}%` }}
+                    />
                   </div>
-                ))}
+                  <p className="text-xs text-[oklch(0.6_0.03_270)]">
+                    {nft.level < 5 
+                      ? `${5 - nft.level} more level${5 - nft.level === 1 ? '' : 's'} to reach Immortal stage`
+                      : 'Maximum evolution reached!'
+                    }
+                  </p>
+                </div>
               </div>
-            </div>
-
-            {/* Evolution timeline */}
-            <div className="panel">
-              <h3 className="font-black text-sm mb-4">Evolution Timeline</h3>
-              <div className="space-y-3">
-                {EVOLUTION_STAGES.map((stage, i) => {
-                  const done = nft.level > i;
-                  const current = nft.level === i + 1;
-                  return (
-                    <div
-                      key={stage.level}
-                      className={`flex items-center gap-4 px-4 py-3 rounded-lg border-2 transition-colors ${
-                        current
-                          ? 'border-[var(--indigo)] bg-[oklch(0.95_0.04_270)]'
-                          : done
-                            ? 'border-[oklch(0.82_0.04_270)] bg-[oklch(0.975_0.01_270)]'
-                            : 'border-[oklch(0.9_0.01_270)] bg-transparent'
-                      }`}
-                    >
-                      <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center text-sm flex-shrink-0 ${
-                        done || current
-                          ? 'border-[var(--indigo)] bg-[var(--indigo)] text-white'
-                          : 'border-[oklch(0.82_0.01_270)] text-[oklch(0.7_0.01_270)]'
+              
+              <div>
+                <h4 className="font-black text-sm mb-2">Evolution Path</h4>
+                <div className="grid grid-cols-5 gap-2">
+                  {[1, 2, 3, 4, 5].map(level => (
+                    <div key={level} className="flex flex-col items-center gap-1">
+                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-lg ${
+                        level <= nft.level 
+                          ? RARITY_BG[nft.rarity]
+                          : 'bg-[oklch(0.88_0.02_270)]'
                       }`}>
-                        {done ? '✓' : stage.level}
+                        {STAGE_EMOJIS[level - 1]}
                       </div>
-                      <span className="text-xl">{STAGE_EMOJIS[i]}</span>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className={`font-black text-sm ${current ? 'text-[var(--indigo)]' : ''}`}>{stage.name}</span>
-                          {current && <span className="tag tag-indigo" style={{ fontSize: '0.6rem' }}>Current</span>}
-                        </div>
-                        <span className="text-xs text-[oklch(0.6_0.03_270)]">{stage.requirements}</span>
+                      <span className="text-xs font-semibold">{['Egg','Creature','Dragon','Phoenix','Immortal'][level - 1]}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* All Attributes */}
+            <div className="panel space-y-3">
+              <h3 className="font-black text-lg">All Details</h3>
+              <div className="grid grid-cols-2 gap-4">
+                {ATTRS.map((attr, i) => (
+                  <div key={i} className="space-y-1">
+                    <p className="text-xs font-semibold text-[oklch(0.6_0.03_270)] uppercase">{attr.k}</p>
+                    <p className="font-bold text-sm break-all">{attr.v}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Evolution Description */}
+            <div className="panel space-y-3">
+              <h3 className="font-black text-lg">Stage Info</h3>
+              <p className="text-sm text-[oklch(0.6_0.03_270)]">{evolution.description}</p>
+              <div className="bg-[oklch(0.94_0.05_270)] rounded-lg p-3 border border-[oklch(0.86_0.01_270)] space-y-2">
+                <p className="text-xs font-semibold text-[oklch(0.5_0.03_270)] uppercase">Traits</p>
+                <div className="space-y-1 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span>Evolution Stage:</span>
+                    <span className="font-bold">{evolution.name}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Power Level:</span>
+                    <span className="font-bold">{nft.level * 20}%</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Unique ID:</span>
+                    <span className="font-mono text-xs font-bold">{nft.tokenId}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Transaction History */}
+            {relatedTxs.length > 0 && (
+              <div className="panel space-y-3">
+                <h3 className="font-black text-lg">Transaction History</h3>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {relatedTxs.map((tx, i) => (
+                    <div key={i} className="flex items-center justify-between p-2 bg-[oklch(0.94_0.05_270)] rounded">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold">{tx.action}</p>
+                        <p className="text-xs text-[oklch(0.6_0.03_270)] font-mono truncate">{tx.hash}</p>
+                      </div>
+                      <div className="text-right ml-2">
+                        <p className="text-sm font-bold">{tx.amount}</p>
+                        <span className={`text-xs font-semibold ${
+                          tx.status === 'success' ? 'text-green-600' : 
+                          tx.status === 'failed' ? 'text-red-600' : 
+                          'text-yellow-600'
+                        }`}>
+                          {tx.status.charAt(0).toUpperCase() + tx.status.slice(1)}
+                        </span>
                       </div>
                     </div>
-                  );
-                })}
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Owner Info */}
+            <div className="panel space-y-3">
+              <h3 className="font-black text-lg">Ownership</h3>
+              <div className="space-y-2">
+                <div>
+                  <p className="text-xs font-semibold text-[oklch(0.6_0.03_270)] uppercase mb-1">Owner Address</p>
+                  <p className="font-mono text-sm break-all font-bold">{nft.owner}</p>
+                </div>
+                {isOwner && (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-2 flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-green-600 flex-shrink-0" />
+                    <span className="text-sm font-semibold text-green-700">You own this NFT</span>
+                  </div>
+                )}
               </div>
             </div>
           </div>

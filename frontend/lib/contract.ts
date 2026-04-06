@@ -177,11 +177,39 @@ export async function mintNFT(name: string): Promise<{ tokenId: number; txHash: 
 export async function levelUpNFT(tokenId: number): Promise<{ newLevel: number; txHash: string }> {
   try {
     const contract = await getWriteContract();
+    const signer = await getSigner();
+    const userAddress = await signer.getAddress();
+    
+    // Pre-flight check: Verify user owns the NFT
+    const owner = await contract.ownerOf(tokenId);
+    if (owner.toLowerCase() !== userAddress.toLowerCase()) {
+      throw new Error(`You do not own NFT #${tokenId}. Current owner: ${owner}`);
+    }
+    
+    // Pre-flight check: Verify user has enough balance
+    const balance = await signer.provider?.getBalance(userAddress);
+    const currentLevel = await contract.levels(tokenId);
+    const levelUpPrice = await contract.levelUpPrice();
+    
+    if (balance && balance < (levelUpPrice + ethers.parseEther("0.001"))) { // 0.001 ETH buffer for gas
+      const balanceETH = ethers.formatEther(balance);
+      const costETH = ethers.formatEther(levelUpPrice);
+      throw new Error(`Insufficient balance. You have ${balanceETH} ETH but need at least ${costETH} ETH + gas fees`);
+    }
+    
+    // Pre-flight check: Verify NFT is not at max level
+    if (currentLevel >= 5) {
+      throw new Error('NFT is already at maximum level (5)');
+    }
     
     const tx = await contract.levelUp(tokenId, {
       value: ethers.parseEther("0.02")
     });
     const receipt = await tx.wait();
+    
+    if (!receipt) {
+      throw new Error('Transaction failed - no receipt returned');
+    }
     
     // Read new level
     const newLevel = await contract.levels(tokenId);
@@ -200,12 +228,31 @@ export async function levelUpNFT(tokenId: number): Promise<{ newLevel: number; t
       throw new Error('Transaction rejected by user');
     }
     
-    // Not owner error
-    if (error.message?.includes('execution reverted')) {
-      throw new Error('You are not the owner of this NFT');
+    // Insufficient funds
+    if (error.code === 'INSUFFICIENT_FUNDS') {
+      throw new Error('Insufficient funds to complete level up transaction');
     }
     
-    throw error;
+    // Contract revert errors
+    if (error.message?.includes('execution reverted') || error.message?.includes('revert')) {
+      // Try to extract custom error message if available
+      if (error.message?.includes('Not the owner')) {
+        throw new Error('You are not the owner of this NFT');
+      }
+      if (error.message?.includes('Insufficient payment')) {
+        throw new Error('Insufficient payment for level up (requires 0.02 ETH)');
+      }
+      throw new Error(`Transaction failed: ${error.reason || error.message || 'Unknown revert'}`);
+    }
+    
+    // Re-throw with better message if it's our custom error
+    if (error.message?.includes('You do not own') || 
+        error.message?.includes('Insufficient balance') || 
+        error.message?.includes('maximum level')) {
+      throw error;
+    }
+    
+    throw new Error(`Level up failed: ${error.message || 'Unknown error'}`);
   }
 }
 
@@ -284,4 +331,71 @@ export async function getNFTsByOwner(ownerAddress: string): Promise<NFTData[]> {
   }
   
   return ownedNFTs;
+}
+
+// Marketplace transactions - send ETH for purchases/listings
+export async function sendMarketplaceTransaction(amountETH: string): Promise<{ txHash: string }> {
+  try {
+    // Validate amount
+    const amount = parseFloat(amountETH);
+    if (isNaN(amount) || amount <= 0) {
+      throw new Error('Invalid transaction amount. Must be greater than 0.');
+    }
+
+    const signer = await getSigner();
+    const userAddress = await signer.getAddress();
+    
+    // Validate user has sufficient balance
+    const balance = await signer.provider?.getBalance(userAddress);
+    const amountWei = ethers.parseEther(amountETH);
+    
+    if (balance && balance < amountWei) {
+      const balanceETH = ethers.formatEther(balance);
+      throw new Error(`Insufficient balance. You have ${balanceETH} ETH but need ${amountETH} ETH`);
+    }
+
+    // Send transaction
+    const tx = await signer.sendTransaction({
+      to: CONTRACT_ADDRESS,
+      value: amountWei,
+    });
+    
+    const receipt = await tx.wait();
+    
+    if (!receipt) {
+      throw new Error('Transaction failed - no receipt returned');
+    }
+    
+    return { txHash: receipt.hash };
+  } catch (error: any) {
+    console.error('Marketplace transaction error:', error);
+    
+    // User rejection
+    if (error.code === 'ACTION_REJECTED') {
+      throw new Error('Transaction rejected by user');
+    }
+    
+    // Insufficient funds
+    if (error.code === 'INSUFFICIENT_FUNDS') {
+      throw new Error('Insufficient funds to complete transaction');
+    }
+    
+    // Network errors
+    if (error.code === 'NETWORK_ERROR' || error.message?.includes('Failed to fetch')) {
+      throw new Error('Cannot connect to blockchain. Make sure Hardhat node is running and you\'re connected to localhost:8545');
+    }
+    
+    // Call exception (contract revert)
+    if (error.code === 'CALL_EXCEPTION') {
+      throw new Error('Transaction failed. Make sure the contract address is correct and the contract can receive ETH.');
+    }
+    
+    // Re-throw with better message if it's our custom error
+    if (error.message?.includes('Insufficient balance') || 
+        error.message?.includes('Invalid transaction amount')) {
+      throw error;
+    }
+    
+    throw new Error(`Transaction failed: ${error.message || 'Unknown error'}`);
+  }
 }

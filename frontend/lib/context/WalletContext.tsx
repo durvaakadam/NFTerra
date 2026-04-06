@@ -3,6 +3,18 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { BrowserProvider, ethers } from 'ethers';
 
+// Type declaration for ethereum
+declare global {
+  interface Window {
+    ethereum?: {
+      request: (args: any) => Promise<any>;
+      on: (event: string, callback: (...args: any[]) => void) => void;
+      removeListener: (event: string, callback: (...args: any[]) => void) => void;
+      isMetaMask?: boolean;
+    };
+  }
+}
+
 interface WalletContextType {
   address: string | null;
   connected: boolean;
@@ -33,23 +45,59 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           const accounts = await provider.listAccounts();
           
           if (accounts.length > 0) {
-            setAddress(accounts[0].address);
+            const userAddress = accounts[0].address;
+            setAddress(userAddress);
             setConnected(true);
             
             const network = await provider.getNetwork();
             setChainId(Number(network.chainId));
             
-            const balanceWei = await provider.getBalance(accounts[0].address);
+            const balanceWei = await provider.getBalance(userAddress);
             const balanceEth = ethers.formatEther(balanceWei);
             setBalance(balanceEth);
           }
         } catch (err) {
           console.error('Error checking wallet connection:', err);
         }
+
+        // Listen for account changes
+        window.ethereum.on('accountsChanged', async (accounts: string[]) => {
+          if (accounts.length > 0) {
+            const userAddress = accounts[0];
+            setAddress(userAddress);
+            setConnected(true);
+            
+            try {
+              const provider = new BrowserProvider(window.ethereum);
+              const balanceWei = await provider.getBalance(userAddress);
+              const balanceEth = ethers.formatEther(balanceWei);
+              setBalance(balanceEth);
+            } catch (err) {
+              console.error('Error updating balance:', err);
+            }
+          } else {
+            setAddress(null);
+            setConnected(false);
+            setBalance('0');
+          }
+        });
+
+        // Listen for chain changes
+        window.ethereum.on('chainChanged', (chainId: string) => {
+          setChainId(parseInt(chainId, 16));
+        });
       }
     };
 
     checkWalletConnection();
+
+    // Cleanup listeners
+    return () => {
+      if (typeof window !== 'undefined' && window.ethereum) {
+        window.ethereum.removeListener('accountsChanged', () => {});
+        window.ethereum.removeListener('chainChanged', () => {});
+      }
+    };
   }, []);
 
   const connectWallet = async () => {
@@ -68,14 +116,14 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       }) as string[];
 
       if (accounts.length > 0) {
-        const resolvedAddress = await provider.resolveName(accounts[0]) || accounts[0];
-        setAddress(accounts[0]);
+        const userAddress = accounts[0];
+        setAddress(userAddress);
         setConnected(true);
 
         const network = await provider.getNetwork();
         setChainId(Number(network.chainId));
 
-        const balanceWei = await provider.getBalance(accounts[0]);
+        const balanceWei = await provider.getBalance(userAddress);
         const balanceEth = ethers.formatEther(balanceWei);
         setBalance(balanceEth);
       }

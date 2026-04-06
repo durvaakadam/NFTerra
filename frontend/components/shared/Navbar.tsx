@@ -18,10 +18,13 @@ export function Navbar() {
   }, []);
 
   const navItems = [
-    { href: '/landing',   label: 'Home' },
-    { href: '/dashboard', label: 'Dashboard' },
-    { href: '/mint',      label: 'Mint' },
-    { href: '/gallery',   label: 'Gallery' },
+    { href: '/landing',      label: 'Home' },
+    { href: '/dashboard',    label: 'Dashboard' },
+    { href: '/marketplace',  label: 'Marketplace' },
+    { href: '/mint',         label: 'Mint' },
+    { href: '/list',         label: 'List' },
+    { href: '/transactions', label: 'Transactions' },
+    { href: '/gallery',      label: 'Gallery' },
   ];
 
   const isActive = (href: string) => pathname === href;
