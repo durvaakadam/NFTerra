@@ -205,8 +205,10 @@ export default function NFTDetailPage({ params }: { params: Promise<{ id: string
   const displayName = storeNFT?.name || displayNFT.name;
   const displayRarity = (storeNFT?.rarity || displayNFT.rarity) as 'common' | 'rare' | 'legendary';
   const stageIndex = Math.max(0, Math.min(displayNFT.level - 1, EVOLUTION_STAGES.length - 1));
-  // Always drive the main artwork from evolution stages so image updates with level
-  const displayImage = EVOLUTION_STAGES[stageIndex]?.image || '/nft-1.jpg';
+  // Use custom image from store if available, otherwise use evolution stage image
+  const displayImage = (storeNFT?.image && storeNFT.image.startsWith('data:')) 
+    ? storeNFT.image 
+    : (EVOLUTION_STAGES[stageIndex]?.image || '/nft-1.jpg');
   
   // Get listing info if available
   const listing = listings.find(l => l.tokenId === displayNFT.tokenId && l.status === 'active');

@@ -189,7 +189,7 @@ export function NFTCard({ nft, onLevelUp, onList, loading, levelUpStage = 'idle'
             style={nft.level < 5 ? { backgroundColor: rc.accent, borderColor: rc.accent } : {}}
           >
               {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
-              {nft.level >= 5 ? 'Max Level' : isEvolving ? stageLabel[levelUpStage] : 'Level Up'}
+              {nft.level >= 5 ? 'Max Level Reached' : isEvolving ? stageLabel[levelUpStage] : `Level Up to ${nft.level + 1}`}
           </button>
         </div>
       </div>

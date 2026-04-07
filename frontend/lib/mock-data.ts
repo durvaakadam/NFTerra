@@ -24,6 +24,7 @@ export interface NFT {
   rarity: 'common' | 'rare' | 'legendary';
   owner: string;
   lastLevelUp: string;
+  offChain?: boolean;
   attributes?: NFTAttribute[];
   metadata?: {
     description: string;

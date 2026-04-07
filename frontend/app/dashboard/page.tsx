@@ -15,7 +15,7 @@ import { LevelUpModal } from '@/components/nft/LevelUpModal';
 import { generateMockNFT, NFT, EVOLUTION_STAGES } from '@/lib/mock-data';
 import { formatTimeAgo } from '@/lib/marketplace-data';
 import { formatAddress } from '@/lib/web3-utils';
-import { sendMarketplaceTransaction, getNFTsByOwner } from '@/lib/contract';
+import { sendMarketplaceTransaction, getNFTsByOwner, CONTRACT_ADDRESS } from '@/lib/contract';
 import {
   RefreshCw, Wallet, TrendingUp, Layers, Star, Trophy,
   CheckCircle, Clock, XCircle, ArrowUpRight, ShoppingBag,
@@ -45,14 +45,15 @@ const STATUS_CONF: Record<string, { icon: React.ReactNode; label: string; color:
 export default function DashboardPage() {
   const router = useRouter();
   const { address, connected } = useWallet();
-  const { newNFTs, removeNewNFT } = useNFTStore();
+  const { newNFTs, updateNewNFT, removeNewNFT } = useNFTStore();
   const { listings, addListing } = useMyListings();
   const { runTx } = useTxToast();
   const { addTransaction, updateTransaction, transactions } = useTxHistory();
-  const { levelUp, levelingUp } = useContract();
+  const { levelUp, levelingUp, levelUpError } = useContract();
   const [blockchainNFTs, setBlockchainNFTs] = useState<NFT[]>([]);
   const [loadingNFTs, setLoadingNFTs] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [nftError, setNftError] = useState<string | null>(null);
   const [levelingNFTId, setLevelingNFTId] = useState<number | null>(null);
   const [levelUpStage, setLevelUpStage] = useState<'idle' | 'initiating' | 'tx-progress' | 'evolution-progress' | 'revealing' | 'complete' | 'error'>('idle');
   const [levelUpModalOpen, setLevelUpModalOpen] = useState(false);
@@ -86,11 +87,13 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!connected || !address) {
       setBlockchainNFTs([]);
+      setNftError(null);
       return;
     }
 
     const fetchNFTs = async () => {
       setLoadingNFTs(true);
+      setNftError(null);
       try {
         const nftDataList = await getNFTsByOwner(address);
         // Convert NFTData to NFT format and derive image from evolution stage
@@ -108,8 +111,10 @@ export default function DashboardPage() {
           };
         });
         setBlockchainNFTs(convertedNFTs);
-      } catch (err) {
+      } catch (err: any) {
+        const errorMsg = err?.message || 'Failed to load NFTs';
         console.error('Error fetching NFTs:', err);
+        setNftError(errorMsg);
       } finally {
         setLoadingNFTs(false);
       }
@@ -118,23 +123,43 @@ export default function DashboardPage() {
     fetchNFTs();
   }, [connected, address]);
 
-  // Combine blockchain NFTs with newly minted ones from context
-  // Ensure we don't show duplicates when the same token exists in both
+  // Clear stale NFTs when contract is redeployed
+  useEffect(() => {
+    // Listen for contract address changes (redeployment)
+    const checkContractChange = () => {
+      const stored = localStorage.getItem('lastContractAddress');
+      if (stored && stored !== CONTRACT_ADDRESS) {
+        console.log('🔄 Contract redeployed detected - clearing stale NFT cache');
+        // Clear newly minted NFTs from old contract
+        localStorage.removeItem('nftStore');
+        window.location.reload();
+      } else if (!stored) {
+        localStorage.setItem('lastContractAddress', CONTRACT_ADDRESS);
+      }
+    };
+    
+    checkContractChange();
+  }, []);
+
+  // Combine blockchain NFTs with newly minted/bought ones from context
+  // Show both on-chain NFTs (source of truth) and newly added NFTs (pending blockchain confirmation)
+  // Level-up guards will verify they exist on-chain before executing
   const nftsMap = new Map<number, NFT>();
   blockchainNFTs.forEach((nft) => {
     nftsMap.set(nft.tokenId, nft);
   });
   newNFTs.forEach((nft) => {
     const existing = nftsMap.get(nft.tokenId);
-    // If on-chain data exists, prefer its level/owner but keep custom image if uploaded
     if (existing) {
+      // Merge: prefer on-chain data but keep custom metadata from local store
       nftsMap.set(nft.tokenId, {
         ...existing,
         name: nft.name || existing.name,
-        // Preserve custom uploaded image if it's a data URL (base64), otherwise use blockchain image
         image: nft.image && nft.image.startsWith('data:') ? nft.image : existing.image,
       });
     } else {
+      // Show recently bought/minted NFTs even if not yet confirmed on-chain
+      // Level-up will be blocked if they don't exist
       nftsMap.set(nft.tokenId, nft);
     }
   });
@@ -160,7 +185,7 @@ export default function DashboardPage() {
 
   // ── Refresh NFTs ─────────────────────────────────────────────────────────────
   const handleRefresh = async () => {
-    if (!address || loadingNFTs) return;
+    if (!address || loadingNFTs || refreshing) return;
     setRefreshing(true);
     try {
       const nftDataList = await getNFTsByOwner(address);
@@ -186,13 +211,52 @@ export default function DashboardPage() {
     }
   };
 
+  // Auto-refresh on-chain NFTs shortly after new mints so level up is fast
+  useEffect(() => {
+    if (!address || newNFTs.length === 0) return;
+
+    let cancelled = false;
+
+    const syncNewNFTs = async () => {
+      try {
+        const nftDataList = await getNFTsByOwner(address);
+        if (cancelled) return;
+        const convertedNFTs: NFT[] = nftDataList.map(nftData => {
+          const stageIndex = Math.max(0, Math.min(nftData.level - 1, EVOLUTION_STAGES.length - 1));
+          return {
+            tokenId: nftData.tokenId,
+            name: nftData.name,
+            level: nftData.level,
+            image: EVOLUTION_STAGES[stageIndex]?.image || '/nft-1.jpg',
+            rarity: (nftData.level === 1 ? 'common' : nftData.level === 2 ? 'rare' : 'legendary') as 'common' | 'rare' | 'legendary',
+            owner: nftData.owner,
+            lastLevelUp: new Date().toISOString(),
+            attributes: [],
+          };
+        });
+        setBlockchainNFTs(convertedNFTs);
+      } catch (err) {
+        console.error('Error auto-syncing new NFTs:', err);
+      }
+    };
+
+    // Run once immediately and again after a short delay to catch confirmations
+    syncNewNFTs();
+    const timer = setTimeout(syncNewNFTs, 5000);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [address, newNFTs.length]);
+
   // ── Level Up NFT ──────────────────────────────────────────────────────────────
   const handleLevelUpClick = (tokenId: number) => {
     const nft = nfts.find(n => n.tokenId === tokenId);
-    if (nft) {
-      setSelectedNFTForLevelUp(nft);
-      setLevelUpModalOpen(true);
-    }
+    if (!nft) return;
+
+    setSelectedNFTForLevelUp(nft);
+    setLevelUpModalOpen(true);
   };
 
   const handleLevelUpConfirm = async () => {
@@ -203,12 +267,81 @@ export default function DashboardPage() {
 
   const handleLevelUp = async (tokenId: number) => {
     if (!connected) {
-      alert('Please connect your wallet first');
       return;
     }
 
     const nft = nfts.find(n => n.tokenId === tokenId);
     if (!nft || nft.level >= 5) return;
+
+    // Local/off-chain marketplace NFTs can level up without on-chain contract checks.
+    if (nft.offChain) {
+      setLevelingNFTId(tokenId);
+      setLevelUpStage('initiating');
+      await wait(450);
+
+      const mockHash = '0x' + Array(64).fill(0).map(() => Math.floor(Math.random() * 16).toString(16)).join('');
+      const txId = addTransaction({
+        action: 'Level Up',
+        tokenId,
+        tokenName: nft.name,
+        timestamp: new Date().toISOString(),
+        status: 'pending',
+        hash: mockHash,
+      });
+
+      await runTx(
+        `Leveling up ${nft.name}...`,
+        async () => {
+          setLevelUpStage('tx-progress');
+          // Require a wallet signature/transaction for local marketplace NFTs too.
+          const txResult = await sendMarketplaceTransaction('0.02');
+          await wait(650);
+
+          const newLevel = Math.min(nft.level + 1, 5);
+          const stageIndex = Math.max(0, Math.min(newLevel - 1, EVOLUTION_STAGES.length - 1));
+          updateNewNFT(tokenId, {
+            level: newLevel,
+            image: EVOLUTION_STAGES[stageIndex]?.image || '/nft-1.jpg',
+            rarity: (newLevel === 1 ? 'common' : newLevel === 2 ? 'rare' : 'legendary') as 'common' | 'rare' | 'legendary',
+            lastLevelUp: new Date().toISOString(),
+          });
+
+          updateTransaction(txId, {
+            status: 'success',
+            hash: txResult.txHash,
+          });
+
+          setLevelUpStage('evolution-progress');
+          await wait(500);
+          setLevelUpStage('revealing');
+          await wait(600);
+          setLevelUpStage('complete');
+          playEvolutionChime();
+          await wait(650);
+        },
+        'Level Up successful!',
+        'Level Up failed',
+      );
+
+      setLevelingNFTId(null);
+      setLevelUpStage('idle');
+      return;
+    }
+
+    // Validate NFT exists on blockchain (check that it's in blockchainNFTs, not just in newNFTs)
+    const existsOnChain = blockchainNFTs.some(n => n.tokenId === tokenId);
+    if (!existsOnChain) {
+      // This NFT is new/pending - wait before trying to level up
+      if (newNFTs.some(n => n.tokenId === tokenId)) {
+        alert('⏳ This NFT is still being minted on-chain. Once the mint transaction is confirmed, refresh your dashboard and try leveling up again.');
+        return;
+      }
+      // NFT doesn't exist anywhere - might be from old contract
+      alert('❌ This NFT no longer exists on the blockchain. The contract may have been reset or redeployed.');
+      setBlockchainNFTs(prev => prev.filter(n => n.tokenId !== tokenId));
+      removeNewNFT(tokenId);
+      return;
+    }
 
     setLevelingNFTId(tokenId);
     setLevelUpStage('initiating');
@@ -276,10 +409,14 @@ export default function DashboardPage() {
           setLevelUpStage('error');
           updateTransaction(txId, { status: 'failed' });
           
-          // If NFT doesn't exist on contract, remove it from display (contract was redeployed/reset)
+          // If NFT doesn't exist on contract, the contract was redeployed or chain was reset
           if (err?.message?.includes('not found on contract')) {
-            console.warn(`Removing stale NFT #${tokenId} - contract was reset or redeployed`);
-            // Remove from both blockchain state and context store
+            console.warn(`NFT #${tokenId} not found - contract was reset or redeployed`);
+            
+            // Show a notification that contract state changed
+            console.warn('⚠️ Contract was redeployed or chain was reset. Reloading NFT list...');
+            
+            // Remove stale NFT from display
             setBlockchainNFTs(prev => prev.filter(n => n.tokenId !== tokenId));
             removeNewNFT(tokenId);
             
@@ -305,10 +442,11 @@ export default function DashboardPage() {
                 console.error('Failed to refresh NFT list:', refreshErr);
               }
             }
-            throw new Error(`NFT #${tokenId} no longer exists on-chain. This usually means the blockchain was reset. Your remaining NFTs have been reloaded.`);
+            // Don't throw—silently skip the error and let modal close
+            return;
           }
           
-          // Re-throw with detailed error message for runTx to display
+          // Re-throw other errors for runTx to display
           throw new Error(err?.message || 'Level up failed');
         }
       },
@@ -429,6 +567,14 @@ export default function DashboardPage() {
               <h2 className="font-black text-xl">Your NFTs</h2>
               <span className="tag tag-indigo">{nfts.length} items</span>
             </div>
+            
+            {nftError && (
+              <div className="mb-6 p-4 rounded-lg bg-rose-500/10 border border-rose-500/20 text-sm">
+                <p className="text-rose-500 font-medium mb-2">⚠️ Contract Not Deployed</p>
+                <p className="text-rose-400 whitespace-pre-wrap text-xs">{nftError}</p>
+              </div>
+            )}
+            
             <NFTGrid
               nfts={nfts}
               newNFTIds={newNFTs.map(n => n.tokenId)}

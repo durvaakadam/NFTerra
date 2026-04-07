@@ -79,8 +79,12 @@ export function useContract(): UseContractReturn {
     } catch (err: any) {
       const message = err?.reason || err?.message || 'Failed to level up NFT';
       setLevelUpError(message);
-      console.error('Level up error:', err);
-      return null;
+      // Only log unexpected errors; "not found on contract" is expected for unconfirmed purchases
+      if (!message.includes('not found on contract')) {
+        console.error('Level up error:', err);
+      }
+      // Re-throw so the caller can see the error
+      throw err;
     } finally {
       setLevelingUp(false);
     }

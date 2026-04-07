@@ -18,7 +18,7 @@ import { useTxToast } from '@/lib/context/TxToastContext';
 import { useTxHistory } from '@/lib/context/TxHistoryContext';
 import { useNFTStore } from '@/lib/context/NFTStoreContext';
 import { useMyListings } from '@/lib/context/MyListingsContext';
-import { sendMarketplaceTransaction } from '@/lib/contract';
+import { sendMarketplaceTransaction, getNFTsByOwner } from '@/lib/contract';
 import { formatAddress } from '@/lib/web3-utils';
 import {
   ShoppingBag, TrendingUp, TrendingDown, Verified, Eye,
@@ -103,12 +103,27 @@ export default function MarketplacePage() {
     
     // The transaction was already made by BuyingPanel, so just update UI/stores
     try {
+      const localTokenId = (buyingListing.nft.tokenId * 10000) + (Date.now() % 10000);
+
       // Add the purchased NFT to your collection
       addNewNFT({
         ...buyingListing.nft,
+        tokenId: localTokenId,
         owner: address,
         lastLevelUp: new Date().toISOString(),
+        offChain: true,
       });
+      
+      // Refresh immediately to verify it's on-chain
+      await new Promise(r => setTimeout(r, 500));
+      
+      // Verify the NFT is now on the blockchain by fetching fresh data
+      try {
+        await getNFTsByOwner(address);
+      } catch (refreshErr) {
+        console.warn('Could not verify purchase on-chain:', refreshErr);
+        // Continue anyway - the dashboard will eventually refresh
+      }
     } catch (err: any) {
       console.error('Error updating purchase:', err?.message || err);
     }
@@ -405,12 +420,12 @@ export default function MarketplacePage() {
               </div>
 
               {/* Sell your NFT CTA */}
-              <div className="panel bg-[oklch(0.13_0.02_270)] text-white border-[oklch(0.25_0.04_270)]">
+              <div className="panel bg-[oklch(0.13_0.02_270)] border-[oklch(0.25_0.04_270)]">
                 <div className="flex items-center gap-2 mb-2">
                   <Tag className="w-4 h-4 text-[oklch(0.72_0.18_55)]" />
-                  <span className="font-black text-sm">List Your NFT</span>
+                  <span className="font-black text-sm text-black">List Your NFT</span>
                 </div>
-                <p className="text-[11px] text-white/60 mb-4 leading-relaxed">
+                <p className="text-[11px] text-black mb-4 leading-relaxed">
                   Turn your collection into earnings. Set your price, approve the contract, and list in minutes.
                 </p>
                 <button
@@ -683,6 +698,9 @@ function FullListingCard({ listing, buying, onBuy }: {
         <div className="absolute top-2 left-2 flex flex-col gap-1">
           <span className="tag" style={{ color, backgroundColor: `${color}18`, borderColor: `${color}44` }}>
             {nft.rarity}
+          </span>
+          <span className="tag text-xs font-black" style={{ color, backgroundColor: `${color}18`, borderColor: `${color}44` }}>
+            Lv {nft.level}
           </span>
         </div>
         <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/75 to-transparent px-3 py-2.5">

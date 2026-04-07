@@ -6,6 +6,7 @@ import { NFT } from '@/lib/mock-data';
 interface NFTStoreContextType {
   newNFTs: NFT[];
   addNewNFT: (nft: NFT) => void;
+  updateNewNFT: (tokenId: number, updates: Partial<NFT>) => void;
   removeNewNFT: (tokenId: number) => void;
   clearNewNFTs: () => void;
 }
@@ -25,6 +26,10 @@ export function NFTStoreProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const updateNewNFT = useCallback((tokenId: number, updates: Partial<NFT>) => {
+    setNewNFTs(prev => prev.map(n => (n.tokenId === tokenId ? { ...n, ...updates } : n)));
+  }, []);
+
   const removeNewNFT = useCallback((tokenId: number) => {
     setNewNFTs(prev => prev.filter(n => n.tokenId !== tokenId));
   }, []);
@@ -36,6 +41,7 @@ export function NFTStoreProvider({ children }: { children: React.ReactNode }) {
   const value: NFTStoreContextType = {
     newNFTs,
     addNewNFT,
+    updateNewNFT,
     removeNewNFT,
     clearNewNFTs,
   };

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { Listing } from '@/lib/marketplace-data';
 import { formatAddress } from '@/lib/web3-utils';
@@ -26,6 +27,7 @@ const BUYING_STEPS = [
 ] as const;
 
 export function BuyingPanel({ listing, onClose, onComplete, loading = false }: BuyingPanelProps) {
+  const router = useRouter();
   const [step, setStep] = useState(1);
   const [walletConnected, setWalletConnected] = useState(false);
   const [contractApproved, setContractApproved] = useState(false);
@@ -64,15 +66,27 @@ export function BuyingPanel({ listing, onClose, onComplete, loading = false }: B
 
   const handleApproveContract = async () => {
     setIsProcessing(true);
-    await new Promise(r => setTimeout(r, 2000));
+    // Immediately approve (no delay)
     setContractApproved(true);
     setIsProcessing(false);
-    setTimeout(() => setStep(3), 300);
+    setTimeout(() => setStep(3), 100);
   };
 
   const handleSignTransaction = async () => {
     setIsProcessing(true);
     try {
+      // First, request MetaMask wallet connection
+      console.log('🔗 Requesting MetaMask connection...');
+      const accounts = await (window as any).ethereum?.request?.({
+        method: 'eth_requestAccounts',
+      });
+      
+      if (!accounts || accounts.length === 0) {
+        throw new Error('No wallet accounts available. Please connect MetaMask.');
+      }
+      
+      console.log('✅ Wallet connected:', accounts[0]);
+      
       // Calculate total cost including fees (price only goes to smart contract)
       const totalAmount = parseFloat(price).toFixed(4);
       
@@ -84,19 +98,13 @@ export function BuyingPanel({ listing, onClose, onComplete, loading = false }: B
         throw new Error('Transaction failed - invalid hash returned');
       }
       
-      console.log('Transaction hash:', result.txHash);
-      await new Promise(r => setTimeout(r, 1000));
+      console.log('✅ Transaction hash:', result.txHash);
       setIsProcessing(false);
       
       // Move to completion step
       setStep(5);
-      
-      // Auto-complete after 2 seconds to update the NFT collection
-      setTimeout(() => {
-        handleComplete();
-      }, 2000);
     } catch (error: any) {
-      console.error('Transaction error:', error?.message || error);
+      console.error('❌ Transaction error:', error?.message || error);
       setIsProcessing(false);
       // Show error but stay on current step so user can retry
       const errorMsg = error?.message || 'Unknown error occurred';
@@ -107,6 +115,7 @@ export function BuyingPanel({ listing, onClose, onComplete, loading = false }: B
   const handleComplete = () => {
     onComplete();
     onClose();
+    router.push('/dashboard');
   };
 
   const isStepComplete = (stepId: number) => {
@@ -497,9 +506,9 @@ export function BuyingPanel({ listing, onClose, onComplete, loading = false }: B
               <div className="flex gap-2 pt-2">
                 <button
                   onClick={handleComplete}
-                  className="flex-1 btn-primary py-3 rounded-lg"
+                  className="flex-1 btn-primary py-3 rounded-lg font-black"
                 >
-                  View in Gallery
+                  View in Dashboard
                 </button>
                 <button
                   onClick={onClose}

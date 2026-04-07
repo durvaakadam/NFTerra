@@ -66,12 +66,23 @@ export async function getSigner() {
   if (!provider) {
     throw new Error('MetaMask is not installed');
   }
+  
   try {
-    return await provider.getSigner();
+    console.log('🔐 Requesting signer from MetaMask...');
+    const signer = await provider.getSigner();
+    console.log('✅ Signer obtained:', await signer.getAddress());
+    return signer;
   } catch (error: any) {
+    console.error('❌ getSigner error:', error);
+    
     if (error.code === 'NETWORK_ERROR') {
       throw new Error('Cannot connect to blockchain network. Make sure Hardhat node is running or switch to the correct network in MetaMask.');
     }
+    
+    if (error.message?.includes('window.ethereum') || error.message?.includes('not available')) {
+      throw new Error('MetaMask is not connected. Please open MetaMask and try again.');
+    }
+    
     throw error;
   }
 }
@@ -365,10 +376,13 @@ export async function sendMarketplaceTransaction(amountETH: string): Promise<{ t
       throw new Error('Invalid transaction amount. Must be greater than 0.');
     }
 
+    console.log('📤 Getting signer for transaction...');
     const signer = await getSigner();
     const userAddress = await signer.getAddress();
+    console.log('✅ Signer ready:', userAddress);
     
     // Validate user has sufficient balance
+    console.log('🔍 Checking balance...');
     const balance = await signer.provider?.getBalance(userAddress);
     const amountWei = ethers.parseEther(amountETH);
     
@@ -376,49 +390,38 @@ export async function sendMarketplaceTransaction(amountETH: string): Promise<{ t
       const balanceETH = ethers.formatEther(balance);
       throw new Error(`Insufficient balance. You have ${balanceETH} ETH but need ${amountETH} ETH`);
     }
+    
+    console.log('✅ Balance OK. Sending transaction...');
 
-    // Send transaction
+    // Send transaction - this will trigger MetaMask dialog
+    console.log('📝 Requesting signature from MetaMask...');
     const tx = await signer.sendTransaction({
       to: CONTRACT_ADDRESS,
       value: amountWei,
     });
     
+    console.log('⏳ Waiting for transaction confirmation...');
     const receipt = await tx.wait();
     
     if (!receipt) {
       throw new Error('Transaction failed - no receipt returned');
     }
     
+    console.log('✅ Transaction confirmed:', receipt.hash);
     return { txHash: receipt.hash };
   } catch (error: any) {
-    console.error('Marketplace transaction error:', error);
+    console.error('❌ Marketplace transaction error:', error);
     
     // User rejection
     if (error.code === 'ACTION_REJECTED') {
       throw new Error('Transaction rejected by user');
     }
     
-    // Insufficient funds
-    if (error.code === 'INSUFFICIENT_FUNDS') {
-      throw new Error('Insufficient funds to complete transaction');
-    }
-    
     // Network errors
-    if (error.code === 'NETWORK_ERROR' || error.message?.includes('Failed to fetch')) {
-      throw new Error('Cannot connect to blockchain. Make sure Hardhat node is running and you\'re connected to localhost:8545');
+    if (error.code === 'NETWORK_ERROR') {
+      throw new Error('Network error. Make sure your Hardhat/Ganache node is running and MetaMask is connected.');
     }
     
-    // Call exception (contract revert)
-    if (error.code === 'CALL_EXCEPTION') {
-      throw new Error('Transaction failed. Make sure the contract address is correct and the contract can receive ETH.');
-    }
-    
-    // Re-throw with better message if it's our custom error
-    if (error.message?.includes('Insufficient balance') || 
-        error.message?.includes('Invalid transaction amount')) {
-      throw error;
-    }
-    
-    throw new Error(`Transaction failed: ${error.message || 'Unknown error'}`);
+    throw error;
   }
 }
